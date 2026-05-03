@@ -186,7 +186,8 @@ export default function ImageGenerator() {
         const images = data.data.map((item: any) => item.url || item.b64_json);
         console.log('Generated images:', images);
 
-        const { data: { user } } = await supabase.auth.getSession();
+        const { data } = await supabase.auth.getSession();
+        const user = data?.session?.user;
         if (user) {
           const { data: profile } = await supabase.from('profiles').select('points').eq('id', user.id).single();
           const newBalance = (profile?.points || 0) - 10;
