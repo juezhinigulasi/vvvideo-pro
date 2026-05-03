@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import Header from './components/Header';
 
 type TaskStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed' | 'error';
 
@@ -273,14 +274,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      <header className="py-8 text-center">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">
-          视频生成工具
-        </h1>
-        <p className="mt-3 text-sm text-blue-400/80 max-w-2xl mx-auto px-4">
-          由明亮开发提供给学员专用版，学习短视频流量变现，AI智能体开发，购微：zhengnianxin123
-        </p>
-      </header>
+      <Header />
 
       <div className="max-w-7xl mx-auto px-4 mb-8">
         <div className="bg-blue-900/40 backdrop-blur-md rounded-2xl border-2 border-cyan-500/40 shadow-xl shadow-cyan-500/10 p-6">
