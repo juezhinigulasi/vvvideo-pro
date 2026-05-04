@@ -21,6 +21,8 @@ interface GlobalConfig {
   duration: number;
 }
 
+const COST_PER_VIDEO = 3;
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>(() => {
     if (typeof window !== 'undefined') {
@@ -46,8 +48,31 @@ export default function Home() {
     duration: 10,
   });
 
+  const [points, setPoints] = useState(0);
+
   const pollingIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
   const fileInputRef = useRef<Record<number, HTMLInputElement | null>>({});
+
+  useEffect(() => {
+    loadUserPoints();
+    localStorage.setItem('videoTasks', JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    loadUserPoints();
+  }, []);
+
+  const loadUserPoints = async () => {
+    try {
+      const response = await fetch('/api/get-user-points');
+      if (response.ok) {
+        const data = await response.json();
+        setPoints(data.points || 0);
+      }
+    } catch (error) {
+      console.error('Failed to load user points:', error);
+    }
+  };
 
   const isGenerating = (status: TaskStatus): boolean => {
     return ['pending', 'processing'].includes(status);
@@ -115,7 +140,7 @@ export default function Home() {
     ));
 
     let pollCount = 0;
-    const maxPollCount = 120; // 最多轮询120次，约10分钟
+    const maxPollCount = 120;
 
     const pollInterval = setInterval(async () => {
       try {
@@ -165,7 +190,6 @@ export default function Home() {
           ));
           alert(`视频生成失败:\n${pollResult.error || '未知错误'}`);
         } else if (pollCount >= maxPollCount) {
-          // 超时处理
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
           setTasks(prevTasks => prevTasks.map(t =>
@@ -239,6 +263,11 @@ export default function Home() {
       return;
     }
 
+    if (points < COST_PER_VIDEO) {
+      alert(`积分不足！当前积分: ${points}，生成视频需要 ${COST_PER_VIDEO} 积分`);
+      return;
+    }
+
     const { model, videoRatio, duration } = globalConfig;
 
     setTasks(prevTasks => prevTasks.map(t =>
@@ -282,6 +311,10 @@ export default function Home() {
 
       const data = JSON.parse(responseText);
 
+      if (data.cost) {
+        setPoints(prev => prev - data.cost);
+      }
+
       if (data.status === 'completed' && data.video_url) {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'completed' as TaskStatus, videoUrl: data.video_url, taskId: data.id } : t
@@ -304,300 +337,246 @@ export default function Home() {
         alert('未获取到任务ID');
       }
     } catch (error) {
+      console.error('生成请求失败:', error);
       setTasks(prevTasks => prevTasks.map(t =>
         t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
       ));
-      alert(`请求失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      alert('生成请求失败，请稍后重试');
     }
-  }, [tasks, globalConfig, pollTask]);
-
-  useEffect(() => {
-    return () => {
-      Object.values(pollingIntervalsRef.current).forEach(interval => clearInterval(interval));
-    };
-  }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('videoTasks', JSON.stringify(tasks));
-    }
-  }, [tasks]);
+  }, [tasks, globalConfig, pollTask, points]);
 
   return (
-    <div className="min-h-screen bg-[#1A1C1E]">
-      <Header />
-
-      <div className="max-w-7xl mx-auto px-6 mb-8">
-        <div className="bg-[#222428] backdrop-blur-md rounded-2xl border border-white/10 p-6" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}>
-          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
-            <div className="w-10 h-10 bg-[#D4AF37] rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-[#1A1C1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-            </div>
-            <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-            <div>
-              <label className="block text-sm text-[#888] mb-2">视频比例</label>
-              <select
-                value={globalConfig.videoRatio}
-                onChange={(e) => updateGlobalConfig('videoRatio', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
-              >
-                <option value="16:9">横屏 16:9</option>
-                <option value="9:16">竖屏 9:16</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-[#888] mb-2">生成时长</label>
-              <select
-                value={globalConfig.duration}
-                onChange={(e) => updateGlobalConfig('duration', Number(e.target.value))}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
-              >
-                <option value={10}>10秒</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-[#888] mb-2">模型类型</label>
-              <select
-                value={globalConfig.model}
-                onChange={(e) => updateGlobalConfig('model', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
-              >
-                <option value="grok-video-3-10s">XAI (Grok Video)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <button
-              onClick={addTask}
-              className="px-6 py-3 bg-[#D4AF37] text-[#1A1C1E] font-medium rounded-xl hover:bg-[#E8C860] transition-all duration-300 flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              添加任务
-            </button>
-            <button
-              onClick={clearAll}
-              className="px-6 py-3 bg-[#1A1C1E] text-[#EF4444] font-medium rounded-xl hover:bg-[#2A2C2E] transition-all duration-300 flex items-center gap-2 border border-white/10"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              清空所有
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-6 pb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+      <Header points={points} costPerVideo={COST_PER_VIDEO} />
+      
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="bg-[#222428] rounded-2xl border border-white/10 overflow-hidden" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)' }}
+              className="bg-slate-800/50 backdrop-blur-lg rounded-2xl overflow-hidden"
             >
-              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-[#D4AF37] rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-[#1A1C1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
+              <div className="p-4 border-b border-slate-700">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white font-semibold">任务 {task.id}</span>
+                  <div className="flex gap-2">
+                    {task.status === 'idle' && (
+                      <button
+                        onClick={() => deleteTask(task.id)}
+                        className="text-gray-400 hover:text-red-400 transition-colors"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                    {isGenerating(task.status) && (
+                      <button
+                        onClick={() => stopGeneration(task.id)}
+                        className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        终止
+                      </button>
+                    )}
                   </div>
-                  <span className="text-sm font-medium text-[#E5E5E5]">任务 #{task.id}</span>
                 </div>
-                <div className="flex items-center gap-3">
-                  {isGenerating(task.status) && (
-                    <span className="px-3 py-1 bg-[#D4AF37] text-[#1A1C1E] text-xs font-medium rounded-full">
-                      生成中
-                    </span>
-                  )}
-                  {task.status === 'completed' && (
-                    <span className="px-3 py-1 bg-[#22C55E] text-white text-xs font-medium rounded-full">
-                      已完成
-                    </span>
-                  )}
-                  {task.status === 'failed' && (
-                    <span className="px-3 py-1 bg-[#EF4444] text-white text-xs font-medium rounded-full">
-                      失败
-                    </span>
-                  )}
-                  {task.status === 'error' && (
-                    <span className="px-3 py-1 bg-[#EF4444] text-white text-xs font-medium rounded-full">
-                      错误
-                    </span>
-                  )}
-                  <button
-                    onClick={() => deleteTask(task.id)}
-                    className="text-[#666] hover:text-[#EF4444] transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+                
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    task.status === 'idle' ? 'bg-slate-700 text-gray-300' :
+                    task.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                    task.status === 'processing' ? 'bg-blue-500/20 text-blue-400' :
+                    task.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                    'bg-red-500/20 text-red-400'
+                  }`}>
+                    {task.status === 'idle' && '准备就绪'}
+                    {task.status === 'pending' && '提交中...'}
+                    {task.status === 'processing' && '渲染中...'}
+                    {task.status === 'completed' && '生成完成'}
+                    {task.status === 'failed' && '生成失败'}
+                    {task.status === 'error' && '请求错误'}
+                  </span>
                 </div>
               </div>
 
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-xs text-[#888] mb-2">提示词</label>
-                  <textarea
-                    value={task.prompt}
-                    onChange={(e) => updateTask(task.id, 'prompt', e.target.value)}
-                    placeholder="描述你想要的视频..."
-                    rows={3}
-                    className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-4 py-3 text-sm text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] resize-none transition-all"
-                  />
-                </div>
+              <div className="p-4">
+                <textarea
+                  value={task.prompt}
+                  onChange={(e) => updateTask(task.id, 'prompt', e.target.value)}
+                  placeholder="输入视频描述..."
+                  className="w-full h-32 p-3 bg-slate-900 text-white rounded-lg border border-slate-700 focus:border-blue-500 focus:outline-none resize-none text-sm mb-4"
+                  disabled={isGenerating(task.status)}
+                />
 
-                <div>
-                  <label className="block text-xs text-[#888] mb-2">参考图（可选）</label>
-                  <input
-                    ref={(el) => { fileInputRef.current[task.id] = el; }}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleFileSelect(task.id, e.target.files?.[0] || null)}
-                  />
+                <div className="border-2 border-dashed border-slate-600 rounded-lg p-4 text-center mb-4">
                   {task.imagePreview ? (
-                    <div className="space-y-3">
-                      <div className="relative border border-white/10 rounded-xl overflow-hidden bg-[#1A1C1E]">
-                        <img src={task.imagePreview} alt="预览" className="w-full h-32 object-contain" />
-                        <button
-                          onClick={() => {
-                            setTasks(prevTasks => prevTasks.map(t =>
-                              t.id === task.id ? { ...t, imagePreview: '', imageUrl: '' } : t
-                            ));
-                            const fileInput = fileInputRef.current[task.id];
-                            if (fileInput) {
-                              fileInput.value = '';
-                            }
-                          }}
-                          className="absolute top-2 right-2 w-6 h-6 bg-[#EF4444] text-white rounded-full flex items-center justify-center hover:bg-[#DC2626] transition-colors"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                      <div className="flex gap-3">
-                        <input
-                          type="text"
-                          value={task.imageUrl}
-                          onChange={(e) => updateTask(task.id, 'imageUrl', e.target.value)}
-                          className="flex-1 bg-[#1A1C1E] border border-white/10 rounded-xl px-4 py-3 text-sm text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
-                          placeholder="图片 URL"
-                        />
-                        <button
-                          onClick={() => copyToClipboard(task.imageUrl)}
-                          className="px-4 py-3 text-sm bg-[#1A1C1E] text-[#D4AF37] border border-[#D4AF37]/30 rounded-xl hover:bg-[#D4AF37]/10 transition-all"
-                        >
-                          复制
-                        </button>
-                      </div>
+                    <div className="relative">
+                      <img
+                        src={task.imagePreview}
+                        alt="预览"
+                        className="w-full h-32 object-cover rounded-lg"
+                      />
+                      <button
+                        onClick={() => {
+                          setTasks(prevTasks => prevTasks.map(t =>
+                            t.id === task.id ? { ...t, imagePreview: '', imageUrl: '' } : t
+                          ));
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full"
+                      >
+                        ×
+                      </button>
                     </div>
                   ) : (
-                    <div
-                      onClick={() => fileInputRef.current[task.id]?.click()}
-                      className="border border-white/10 rounded-xl p-5 text-center hover:border-[#D4AF37]/50 hover:bg-[#D4AF37]/5 transition-all cursor-pointer bg-[#1A1C1E]"
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        <svg className="w-8 h-8 text-[#D4AF37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 0 002 2z" />
-                        </svg>
-                        <span className="text-sm text-[#888]">点击上传</span>
+                    <label className="cursor-pointer">
+                      <input
+                        ref={(el) => { fileInputRef.current[task.id] = el; }}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => handleFileSelect(task.id, e.target.files?.[0] || null)}
+                        className="hidden"
+                        disabled={isGenerating(task.status)}
+                      />
+                      <div className="text-gray-400">
+                        <div className="text-3xl mb-1">📷</div>
+                        <p className="text-sm">点击上传参考图（可选）</p>
                       </div>
-                    </div>
+                    </label>
                   )}
                 </div>
 
-                {isGenerating(task.status) ? (
-                  <>
-                    <button
-                      onClick={() => stopGeneration(task.id)}
-                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-[#DC2626] border-[#DC2626]/50 hover:bg-[#B91C1C] text-white"
-                    >
-                      <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      终止生成
-                    </button>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-center text-sm text-[#D4AF37]">
-                        <svg className="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        渲染中...
-                      </div>
-                      <div className="w-full h-2 bg-[#1A1C1E] rounded-full overflow-hidden">
-                        <div className="h-full bg-[#D4AF37] animate-pulse rounded-full" style={{ width: '100%' }} />
-                      </div>
+                {task.status === 'completed' && task.videoUrl && (
+                  <div className="mb-4">
+                    <video
+                      src={task.videoUrl}
+                      controls
+                      className="w-full rounded-lg"
+                      poster=""
+                    />
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => downloadVideo(task.videoUrl, task.id)}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        📥 下载视频
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(task.videoUrl)}
+                        className="px-4 py-2 bg-slate-700 text-white text-sm rounded-lg hover:bg-slate-600 transition-colors"
+                      >
+                        🔗 复制链接
+                      </button>
                     </div>
-                  </>
-                ) : (
+                  </div>
+                )}
+
+                {task.status === 'failed' && (
+                  <div className="p-4 bg-red-500/10 rounded-lg text-center mb-4">
+                    <div className="text-red-400">❌ 视频生成失败</div>
+                    <div className="text-gray-400 text-sm mt-1">请检查提示词后重试</div>
+                  </div>
+                )}
+
+                {task.status === 'processing' && (
+                  <div className="py-8 text-center">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                    <p className="text-gray-400">正在渲染中...</p>
+                    <div className="mt-2 w-full bg-slate-700 rounded-full h-2">
+                      <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                    </div>
+                  </div>
+                )}
+
+                {task.status === 'idle' && (
                   <button
                     onClick={() => handleGenerate(task.id)}
-                    disabled={isGenerating(task.status)}
-                    className={`w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 ${
-                      task.status === 'completed'
-                        ? 'bg-[#22C55E] border-[#22C55E]/50 hover:bg-[#16A34A] text-white'
-                        : task.status === 'failed' || task.status === 'error'
-                        ? 'bg-[#EF4444] border-[#EF4444]/50 hover:bg-[#DC2626] text-white'
-                        : 'bg-[#D4AF37] border-[#D4AF37]/50 hover:bg-[#E8C860] text-[#1A1C1E]'
-                    }`}
+                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all"
                   >
-                    {task.status === 'completed' && (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        生成完成
-                      </>
-                    )}
-                    {(task.status === 'failed' || task.status === 'error') && (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        重试
-                      </>
-                    )}
-                    {task.status === 'idle' && (
-                      <>
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                        生成视频
-                      </>
-                    )}
+                    🎬 生成视频
                   </button>
                 )}
 
-                {task.status === 'completed' && task.videoUrl && (
-                  <div className="space-y-3">
-                    <div className="relative rounded-xl overflow-hidden bg-black" style={{ aspectRatio: '16/9' }}>
-                      <video src={task.videoUrl} className="w-full h-full object-contain" controls preload="metadata" />
-                    </div>
-                    <button
-                      onClick={() => downloadVideo(task.videoUrl, task.id)}
-                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-[#3B82F6] border-[#3B82F6]/50 hover:bg-[#2563EB] text-white"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      下载视频
-                    </button>
-                  </div>
+                {task.status === 'pending' && (
+                  <button
+                    disabled
+                    className="w-full py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg opacity-50"
+                  >
+                    📤 提交中...
+                  </button>
+                )}
+
+                {task.status === 'completed' && (
+                  <button
+                    onClick={() => handleGenerate(task.id)}
+                    className="w-full py-3 bg-gradient-to-r from-green-600 to-teal-600 text-white font-semibold rounded-lg hover:from-green-700 hover:to-teal-700 transition-all"
+                  >
+                    🔄 重新生成
+                  </button>
                 )}
               </div>
             </div>
           ))}
+
+          <button
+            onClick={addTask}
+            className="bg-slate-800/50 backdrop-blur-lg rounded-2xl border-2 border-dashed border-slate-600 flex items-center justify-center h-64 hover:border-blue-500 transition-colors"
+          >
+            <div className="text-gray-400 text-center">
+              <div className="text-4xl mb-2">➕</div>
+              <p>添加任务</p>
+            </div>
+          </button>
+        </div>
+
+        <div className="mt-8 bg-slate-800/50 backdrop-blur-lg rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-semibold">全局配置</h3>
+            <button
+              onClick={clearAll}
+              className="px-4 py-2 bg-red-600/20 text-red-400 text-sm rounded-lg hover:bg-red-600/30 transition-colors"
+            >
+              清空所有任务
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label className="block text-gray-400 text-sm mb-2">模型选择</label>
+              <select
+                value={globalConfig.model}
+                onChange={(e) => updateGlobalConfig('model', e.target.value)}
+                className="w-full p-3 bg-slate-900 text-white rounded-lg border border-slate-700 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="grok-video-3-10s">Grok Video 3 (10秒)</option>
+                <option value="grok-video-3-20s">Grok Video 3 (20秒)</option>
+                <option value="grok-video-3-30s">Grok Video 3 (30秒)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-gray-400 text-sm mb-2">视频比例</label>
+              <select
+                value={globalConfig.videoRatio}
+                onChange={(e) => updateGlobalConfig('videoRatio', e.target.value)}
+                className="w-full p-3 bg-slate-900 text-white rounded-lg border border-slate-700 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="16:9">16:9 (横屏)</option>
+                <option value="9:16">9:16 (竖屏)</option>
+                <option value="1:1">1:1 (正方形)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-gray-400 text-sm mb-2">生成时长</label>
+              <select
+                value={globalConfig.duration}
+                onChange={(e) => updateGlobalConfig('duration', parseInt(e.target.value))}
+                className="w-full p-3 bg-slate-900 text-white rounded-lg border border-slate-700 focus:border-blue-500 focus:outline-none"
+              >
+                <option value={10}>10秒</option>
+                <option value={20}>20秒</option>
+                <option value={30}>30秒</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -4,13 +4,18 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 
-export default function Header() {
+interface HeaderProps {
+  points?: number;
+  costPerVideo?: number;
+}
+
+export default function Header({ points: externalPoints, costPerVideo }: HeaderProps) {
   const [showLogin, setShowLogin] = useState(false);
   const [showCardRedeem, setShowCardRedeem] = useState(false);
   const [showPersonalCenter, setShowPersonalCenter] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [cardCode, setCardCode] = useState('');
-  const [points, setPoints] = useState(0);
+  const [points, setPoints] = useState(externalPoints || 0);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -42,6 +47,12 @@ export default function Header() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (externalPoints !== undefined) {
+      setPoints(externalPoints);
+    }
+  }, [externalPoints]);
 
   const fetchUserPoints = async (userId: string) => {
     try {
