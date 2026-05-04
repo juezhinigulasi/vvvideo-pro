@@ -117,8 +117,14 @@ export default function Home() {
       t.id === taskIdNum ? { ...t, status: 'processing' as TaskStatus } : t
     ));
 
+    let pollCount = 0;
+    const maxPollCount = 120; // 最多轮询120次，约10分钟
+
     const pollInterval = setInterval(async () => {
       try {
+        pollCount++;
+        console.log(`[前端轮询] 第 ${pollCount} 次轮询，任务ID: ${taskIdStr}`);
+
         const pollResponse = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -126,18 +132,33 @@ export default function Home() {
         });
 
         const pollText = await pollResponse.text();
-        console.log('[前端轮询] 响应:', pollText);
+        console.log('[前端轮询] 响应内容:', pollText);
+
+        if (!pollResponse.ok) {
+          console.log(`[前端轮询] HTTP错误: ${pollResponse.status}`);
+          if (pollCount >= maxPollCount) {
+            clearInterval(pollInterval);
+            delete pollingIntervalsRef.current[taskIdNum];
+            setTasks(prevTasks => prevTasks.map(t =>
+              t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
+            ));
+            alert('轮询超时');
+          }
+          return;
+        }
+
         const pollResult = JSON.parse(pollText);
 
-        console.log('[前端轮询] 任务状态:', pollResult.status, '任务ID:', taskIdStr);
-        console.log('[前端轮询] 视频URL:', pollResult.video_url);
+        console.log('[前端轮询] 任务状态:', pollResult.status);
+        console.log('[前端轮询] 视频URL:', pollResult.video_url || pollResult.url);
 
         if (pollResult.status === 'completed') {
+          const videoUrl = pollResult.video_url || pollResult.url;
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
-          console.log('[前端轮询] ✅ 任务完成，设置视频URL:', pollResult.video_url);
+          console.log('[前端轮询] ✅ 任务完成，视频URL:', videoUrl);
           setTasks(prevTasks => prevTasks.map(t =>
-            t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl: pollResult.video_url } : t
+            t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl } : t
           ));
         } else if (pollResult.status === 'failed') {
           clearInterval(pollInterval);
@@ -145,12 +166,28 @@ export default function Home() {
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
-          alert(`视频生成失败:\n${pollResult.error}`);
+          alert(`视频生成失败:\n${pollResult.error || '未知错误'}`);
+        } else if (pollCount >= maxPollCount) {
+          // 超时处理
+          clearInterval(pollInterval);
+          delete pollingIntervalsRef.current[taskIdNum];
+          setTasks(prevTasks => prevTasks.map(t =>
+            t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
+          ));
+          alert('视频生成超时，请重试');
         } else {
-          console.log(`[前端轮询] 任务进行中: ${pollResult.status}`);
+          console.log(`[前端轮询] 任务进行中: ${pollResult.status || 'processing'}`);
         }
       } catch (error) {
-        console.error('轮询失败:', error);
+        console.error('[前端轮询] 轮询异常:', error);
+        if (pollCount >= maxPollCount) {
+          clearInterval(pollInterval);
+          delete pollingIntervalsRef.current[taskIdNum];
+          setTasks(prevTasks => prevTasks.map(t =>
+            t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
+          ));
+          alert('轮询异常');
+        }
       }
     }, 5000);
 

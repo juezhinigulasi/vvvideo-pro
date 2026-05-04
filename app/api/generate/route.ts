@@ -31,26 +31,45 @@ export async function POST(request: Request) {
         console.log('[轮询] 响应内容:', responseText);
 
         if (!response.ok) {
-          return NextResponse.json({ error: '查询失败' }, { status: response.status });
+          console.error('[轮询] HTTP错误:', response.status);
+          return NextResponse.json({ status: 'processing', id: taskId });
         }
 
         const result = JSON.parse(responseText);
 
-        if (result.status === 'completed') {
-          console.log('[轮询] 任务完成，视频URL:', result.video_url || result.url);
+        console.log('[轮询] 解析结果:', JSON.stringify(result, null, 2));
+        console.log('[轮询] 状态:', result.status);
+        console.log('[轮询] 视频URL字段:', {
+          video_url: result.video_url,
+          url: result.url,
+          data: result.data,
+          output: result.output,
+        });
+
+        if (result.status === 'completed' || result.status === 'success') {
+          const videoUrl = result.video_url || result.url || result.data?.video_url || result.output?.url;
+          console.log('[轮询] ✅ 任务完成，视频URL:', videoUrl);
+          
+          if (!videoUrl) {
+            console.warn('[轮询] 任务完成但未找到视频URL');
+            return NextResponse.json({ status: 'processing', id: taskId });
+          }
+
           return NextResponse.json({
             status: 'completed',
             id: taskId,
-            video_url: result.video_url || result.url,
+            video_url: videoUrl,
+            url: videoUrl,
           });
-        } else if (result.status === 'failed') {
+        } else if (result.status === 'failed' || result.status === 'error') {
           console.log('[轮询] 任务失败:', result.error);
           return NextResponse.json({
             status: 'failed',
             id: taskId,
-            error: result.error || '视频生成失败',
+            error: result.error || result.message || '视频生成失败',
           });
         } else {
+          console.log('[轮询] 任务进行中，状态:', result.status);
           return NextResponse.json({ status: result.status || 'processing', id: taskId });
         }
       } catch (error) {
