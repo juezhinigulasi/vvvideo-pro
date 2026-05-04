@@ -150,15 +150,27 @@ export default function ImageGenerator() {
   };
 
   const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+    console.log('========== 开始生成图片 ==========');
+    console.log('prompt:', prompt?.substring(0, 50));
+    console.log('apiKey:', apiKey ? '已设置' : '未设置');
+    console.log('mode:', mode);
+    console.log('uploadedImages:', uploadedImages?.length || 0, '张');
+
+    if (!prompt.trim()) {
+      console.log('❌ 提示词为空');
+      return;
+    }
     if (!apiKey.trim()) {
+      console.log('❌ API Key 为空');
       alert('请先输入 API Key');
       return;
     }
 
     const { data } = await supabase.auth.getSession();
     const user = data?.session?.user;
+    console.log('user:', user ? '已登录' : '未登录');
     if (!user) {
+      console.log('❌ 用户未登录');
       alert('请先登录后再使用生图功能');
       return;
     }
@@ -169,15 +181,22 @@ export default function ImageGenerator() {
       .eq('id', user.id)
       .single();
 
+    console.log('profile:', profile);
+    console.log('points:', profile?.points || 0);
     if (!profile || profile.points < 10) {
+      console.log('❌ 积分不足');
       alert('积分不足，请先充值！最低需要 10 积分');
       return;
     }
     
     if (mode === 'image' && uploadedImages.length === 0) {
+      console.log('❌ 图生图模式但未上传图片');
       alert('请先上传图片');
       return;
     }
+    
+    console.log('✅ 所有检查通过，准备发送请求');
+    console.log('上传的图片:', uploadedImages?.map((img, i) => `图片${i+1}: ${img?.substring(0, 30)}...`));
     
     setIsGenerating(true);
     
