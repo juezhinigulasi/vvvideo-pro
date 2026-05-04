@@ -389,24 +389,10 @@ export default function ImageGenerator() {
       const data = await response.json();
       console.log('Received response:', data);
       
-      if (data.data && data.data.length > 0) {
-        const images = data.data.map((item: any) => item.url || item.b64_json);
+      // 后端返回的格式是 { status, urls, cost }
+      if (data.status === 'completed' && data.urls && data.urls.length > 0) {
+        const images = data.urls;
         console.log('Generated images:', images);
-
-        const { data: sessionData } = await supabase.auth.getSession();
-        const user = sessionData?.session?.user;
-        if (user) {
-          const { data: profile } = await supabase.from('profiles').select('points').eq('id', user.id).single();
-          const newBalance = (profile?.points || 0) - 10;
-          await supabase.from('transactions').insert({
-            user_id: user.id,
-            type: 'generate_image',
-            description: `生图扣费`,
-            points_change: -10,
-            balance_after: newBalance,
-          });
-        }
-        await supabase.rpc('deduct_points', { amount: 10 });
 
         setGenerationHistory(prev => {
           const updated = prev.map(r => 
