@@ -218,6 +218,10 @@ export default function ImageGenerator() {
         bodyData: { ...bodyData, apiKey: '***', image: bodyData.image ? '[' + bodyData.image.length + ' images]' : undefined },
       });
 
+      console.log('========== 发送图生图请求 ==========');
+      console.log('请求体大小:', JSON.stringify(bodyData).length, '字节');
+      console.log('图片数据长度:', bodyData.image ? bodyData.image[0]?.length : 'N/A');
+      
       const response = await fetch('/api/generate-image', {
         method: 'POST',
         headers: {
@@ -229,9 +233,19 @@ export default function ImageGenerator() {
       console.log('Response status:', response.status, response.statusText);
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('API error:', errorData);
-        throw new Error(errorData.error || `请求失败: ${response.status}`);
+        const errorText = await response.text();
+        console.error('API error status:', response.status);
+        console.error('API error response:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || 'Unknown error' };
+        }
+        
+        console.error('Parsed error:', errorData);
+        throw new Error(errorData.error || errorData.message || `请求失败: ${response.status}`);
       }
 
       const data = await response.json();
