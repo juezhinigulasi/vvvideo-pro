@@ -46,37 +46,64 @@ export default function ImageGenerator() {
 
   const ratios = ["9:16", "16:9", "1:1", "3:2", "2:3", "4:3"];
 
-  const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {
+  const compressImage = async (file: File): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-          const canvas = document.createElement('canvas');
+          // 目标大小：4MB = 4 * 1024 * 1024 = 4194304 字节
+          const MAX_SIZE = 4 * 1024 * 1024;
+          const MAX_DIMENSION = 1536; // 最大尺寸
+          
           let width = img.width;
           let height = img.height;
-
-          // 计算缩放比例
-          if (width > maxWidth) {
-            height = (height * maxWidth) / width;
-            width = maxWidth;
+          let quality = 0.9; // 初始质量
+          
+          // 第一步：缩放图片到最大尺寸
+          if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+            const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
           }
-          if (height > maxHeight) {
-            width = (width * maxHeight) / height;
-            height = maxHeight;
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
+          
+          const compress = (currentQuality: number): void => {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            
+            if (!ctx) {
+              resolve(event.target?.result as string);
+              return;
+            }
+            
+            // 绘制图片
             ctx.drawImage(img, 0, 0, width, height);
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-            console.log('图片压缩完成 - 原大小:', file.size, '字节, 压缩后:', compressedDataUrl.length * 0.75, '字节');
-            resolve(compressedDataUrl);
-          } else {
-            resolve(event.target?.result as string);
-          }
+            
+            // 转换为 base64
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', currentQuality);
+            const compressedSize = compressedDataUrl.length * 0.75; // base64 大约增加 33%
+            
+            console.log(`压缩尝试 - 质量: ${(currentQuality * 100).toFixed(0)}%, 大小: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
+            
+            // 如果还太大，降低质量继续压缩
+            if (compressedSize > MAX_SIZE && currentQuality > 0.1) {
+              // 如果尺寸还能缩小，先缩小尺寸
+              if (width > 512 || height > 512) {
+                width = Math.round(width * 0.8);
+                height = Math.round(height * 0.8);
+              }
+              // 降低质量
+              compress(Math.max(0.1, currentQuality - 0.1));
+            } else {
+              console.log(`图片压缩完成 - 原大小: ${(file.size / 1024 / 1024).toFixed(2)} MB, 压缩后: ${(compressedSize / 1024 / 1024).toFixed(2)} MB, 质量: ${(currentQuality * 100).toFixed(0)}%`);
+              resolve(compressedDataUrl);
+            }
+          };
+          
+          // 开始压缩
+          compress(quality);
         };
         img.src = event.target?.result as string;
       };
