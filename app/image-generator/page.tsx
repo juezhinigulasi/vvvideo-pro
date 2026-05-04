@@ -117,7 +117,7 @@ export default function ImageGenerator() {
       const newImages: string[] = [];
       for (const file of Array.from(files)) {
         console.log('开始处理图片:', file.name, '大小:', file.size, '字节');
-        const compressedImage = await compressImage(file, 1024, 1024, 0.8);
+        const compressedImage = await compressImage(file);
         newImages.push(compressedImage);
       }
       setUploadedImages(newImages);
