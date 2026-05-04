@@ -193,10 +193,17 @@ export async function POST(request: Request) {
 
           if (statusResult.status === 'completed') {
             console.log('✅ 视频生成成功:', statusResult);
+            console.log('✅ 视频URL字段检查:', {
+              hasVideoUrl: !!statusResult.video_url,
+              hasUrl: !!statusResult.url,
+              videoUrl: statusResult.video_url,
+              url: statusResult.url,
+              allKeys: Object.keys(statusResult)
+            });
             return NextResponse.json({
               id: taskId,
               status: 'completed',
-              video_url: statusResult.video_url || statusResult.url,
+              video_url: statusResult.video_url || statusResult.url || statusResult.data?.video_url,
             });
           } else if (statusResult.status === 'failed') {
             console.error('❌ 视频生成失败:', statusResult);

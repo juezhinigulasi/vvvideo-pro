@@ -126,11 +126,16 @@ export default function Home() {
         });
 
         const pollText = await pollResponse.text();
+        console.log('[前端轮询] 响应:', pollText);
         const pollResult = JSON.parse(pollText);
+
+        console.log('[前端轮询] 任务状态:', pollResult.status, '任务ID:', taskIdStr);
+        console.log('[前端轮询] 视频URL:', pollResult.video_url);
 
         if (pollResult.status === 'completed') {
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
+          console.log('[前端轮询] ✅ 任务完成，设置视频URL:', pollResult.video_url);
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl: pollResult.video_url } : t
           ));
@@ -141,6 +146,8 @@ export default function Home() {
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
           alert(`视频生成失败:\n${pollResult.error}`);
+        } else {
+          console.log(`[前端轮询] 任务进行中: ${pollResult.status}`);
         }
       } catch (error) {
         console.error('轮询失败:', error);
