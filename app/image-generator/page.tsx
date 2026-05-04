@@ -164,10 +164,8 @@ export default function ImageGenerator() {
         };
 
         rec.onend = () => {
-          if (isRecording) {
-            // 如果还在录音状态，重新开始
-            rec.start();
-          }
+          // 手动模式：录音结束后不自动重新开始
+          // 用户需要手动点击结束
         };
 
         rec.start();
@@ -257,8 +255,6 @@ export default function ImageGenerator() {
     
     console.log('✅ 所有检查通过，准备发送请求');
     console.log('上传的图片:', uploadedImages?.map((img, i) => `图片${i+1}: ${img?.substring(0, 30)}...`));
-    
-    setIsGenerating(true);
     
     const recordId = Date.now().toString();
     const newRecord: GenerationRecord = {
@@ -432,8 +428,6 @@ export default function ImageGenerator() {
         saveHistory(updated);
         return updated;
       });
-    } finally {
-      setIsGenerating(false);
     }
   };
 
@@ -590,24 +584,13 @@ export default function ImageGenerator() {
 
                 <button
                   onClick={handleGenerate}
-                  disabled={isGenerating || !prompt.trim()}
+                  disabled={!prompt.trim()}
                   className="w-full px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:from-gray-600 disabled:to-gray-600 text-white rounded-xl font-medium shadow-lg shadow-cyan-500/30 transition-all duration-200 flex items-center justify-center gap-2"
                 >
-                  {isGenerating ? (
-                    <>
-                      <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      生成中...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 0 002 2z" />
-                      </svg>
-                      生成图像
-                    </>
-                  )}
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 0 002 2z" />
+                  </svg>
+                  生成图像
                 </button>
               </div>
             </div>
