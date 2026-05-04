@@ -147,11 +147,12 @@ export default function ImageGenerator() {
         rec.lang = 'zh-CN';
 
         rec.onresult = (event: any) => {
-          let transcript = '';
+          let newTranscript = '';
           for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
+            newTranscript += event.results[i][0].transcript;
           }
-          setPrompt(transcript);
+          // 追加到现有提示词后面，而不是替换
+          setPrompt(prev => prev + newTranscript);
         };
 
         rec.onerror = (event: any) => {
