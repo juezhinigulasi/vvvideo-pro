@@ -44,12 +44,25 @@ export async function POST(request: NextRequest) {
     };
 
     if (image && Array.isArray(image) && image.length > 0) {
-      requestBody.image = image;
+      // 图生图模式：处理图片数据，提取纯 base64 数据
+      const processedImages = image.map((img: string) => {
+        if (img.startsWith('data:')) {
+          const commaIndex = img.indexOf(',');
+          if (commaIndex !== -1) {
+            return img.substring(commaIndex + 1);
+          }
+        }
+        return img;
+      });
+      requestBody.image = processedImages;
+      console.log('图生图模式 - 处理后的图片数量:', processedImages.length);
+      console.log('第一张图片大小:', processedImages[0]?.length || 0, '字符');
     }
 
     const apiUrl = 'https://yunwu.ai/v1/images/generations';
     console.log('Sending request to:', apiUrl);
-    console.log('Request body:', JSON.stringify(requestBody).substring(0, 500) + '...');
+    console.log('Request body size:', JSON.stringify(requestBody).length, 'bytes');
+    console.log('Request body preview:', JSON.stringify(requestBody).substring(0, 500) + '...');
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
