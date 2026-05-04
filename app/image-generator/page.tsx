@@ -156,11 +156,21 @@ export default function ImageGenerator() {
       };
 
       if (mode === 'image' && uploadedImages.length > 0) {
-        bodyData.image = uploadedImages;
+        // 图生图模式：提取 base64 数据部分（去掉 data:image/xxx;base64, 前缀）
+        const processedImages = uploadedImages.map(img => {
+          if (img.startsWith('data:')) {
+            return img.split(',')[1]; // 提取 base64 数据部分
+          }
+          return img;
+        });
+        bodyData.image = processedImages;
+        console.log('图生图模式 - 处理后的图片数量:', processedImages.length);
+        console.log('第一张图片大小:', processedImages[0]?.length || 0, '字符');
       }
 
       console.log('Sending request to /api/generate-image:', {
-        bodyData: { ...bodyData, apiKey: '***' },
+        mode,
+        bodyData: { ...bodyData, apiKey: '***', image: bodyData.image ? '[' + bodyData.image.length + ' images]' : undefined },
       });
 
       const response = await fetch('/api/generate-image', {
