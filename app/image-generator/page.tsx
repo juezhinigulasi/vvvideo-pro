@@ -309,19 +309,50 @@ export default function ImageGenerator() {
         console.error('Parsed error:', errorData);
         
         // 转换错误信息为中文
-        let errorMsg = errorData.error || errorData.message || `请求失败: ${response.status}`;
+        let errorMsg = errorData.error || errorData.message || errorData.detail || errorData.msg || `请求失败: ${response.status}`;
         
-        // 替换常见的英文错误信息
-        if (errorMsg.includes('Request Entity Too Large') || errorMsg.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
-          errorMsg = '图片文件过大，请尝试上传更小的图片或使用图片压缩工具';
-        } else if (errorMsg.includes('413')) {
-          errorMsg = '请求过大，请压缩图片后重试';
-        } else if (errorMsg.includes('timeout')) {
-          errorMsg = '请求超时，请稍后重试';
-        } else if (errorMsg.includes('network')) {
-          errorMsg = '网络错误，请检查网络连接';
+        // 确保 errorMsg 是字符串
+        if (typeof errorMsg !== 'string') {
+          errorMsg = JSON.stringify(errorMsg);
         }
         
+        console.log('原始错误信息:', errorMsg);
+        
+        // 替换常见的英文错误信息（不区分大小写）
+        const lowerMsg = errorMsg.toLowerCase();
+        
+        if (lowerMsg.includes('request entity too large') || 
+            lowerMsg.includes('function_payload_too_large') || 
+            lowerMsg.includes('payload too large')) {
+          errorMsg = '图片文件过大，请尝试上传更小的图片或使用图片压缩工具';
+        } else if (lowerMsg.includes('413')) {
+          errorMsg = '请求过大，请压缩图片后重试';
+        } else if (lowerMsg.includes('timeout') || lowerMsg.includes('time out')) {
+          errorMsg = '请求超时，请稍后重试';
+        } else if (lowerMsg.includes('network') || 
+                   lowerMsg.includes('connection') || 
+                   lowerMsg.includes('fetch failed')) {
+          errorMsg = '网络错误，请检查网络连接';
+        } else if (lowerMsg.includes('invalid') || lowerMsg.includes('bad request')) {
+          errorMsg = '请求参数错误，请检查输入';
+        } else if (lowerMsg.includes('unauthorized') || 
+                   lowerMsg.includes('invalid key') || 
+                   lowerMsg.includes('api key')) {
+          errorMsg = 'API Key 无效，请检查您的 API Key';
+        } else if (lowerMsg.includes('forbidden') || lowerMsg.includes('403')) {
+          errorMsg = '访问被拒绝，请检查权限';
+        } else if (lowerMsg.includes('not found') || lowerMsg.includes('404')) {
+          errorMsg = '请求的资源未找到';
+        } else if (lowerMsg.includes('server error') || 
+                   lowerMsg.includes('500') || 
+                   lowerMsg.includes('502') || 
+                   lowerMsg.includes('503')) {
+          errorMsg = '服务器错误，请稍后重试';
+        } else if (response.status === 413) {
+          errorMsg = '图片文件过大，请压缩后重试（最大 4MB）';
+        }
+        
+        console.log('转换后的中文错误:', errorMsg);
         throw new Error(errorMsg);
       }
 
