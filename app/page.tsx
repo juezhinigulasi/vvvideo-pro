@@ -23,11 +23,23 @@ interface GlobalConfig {
 }
 
 export default function Home() {
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: 1, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
-    { id: 2, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
-    { id: 3, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
-  ]);
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('videoTasks');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // 如果解析失败，返回默认值
+        }
+      }
+    }
+    return [
+      { id: 1, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
+      { id: 2, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
+      { id: 3, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
+    ];
+  });
 
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({
     apiKey: typeof window !== 'undefined' ? localStorage.getItem('videoApiKey') || '' : '',
@@ -272,70 +284,76 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('videoTasks', JSON.stringify(tasks));
+    }
+  }, [tasks]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+    <div className="min-h-screen bg-[#1A1C1E]">
       <Header />
 
-      <div className="max-w-7xl mx-auto px-4 mb-8">
-        <div className="bg-blue-900/40 backdrop-blur-md rounded-2xl border-2 border-cyan-500/40 shadow-xl shadow-cyan-500/10 p-6">
-          <div className="flex items-center gap-2 mb-6 pb-4 border-b-2 border-cyan-500/30">
-            <div className="w-8 h-8 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-lg flex items-center justify-center shadow-md">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="max-w-7xl mx-auto px-6 mb-8">
+        <div className="bg-[#222428] backdrop-blur-md rounded-2xl border border-white/10 p-6" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}>
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
+            <div className="w-10 h-10 bg-[#D4AF37] rounded-xl flex items-center justify-center">
+              <svg className="w-5 h-5 text-[#1A1C1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h2 className="text-lg font-semibold text-white">全局配置</h2>
+            <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-5">
             <div>
-              <label className="block text-sm text-blue-300/80 mb-2">API KEY</label>
+              <label className="block text-sm text-[#888] mb-2">API KEY</label>
               <input
                 type="password"
                 value={globalConfig.apiKey}
                 onChange={(e) => updateGlobalConfig('apiKey', e.target.value)}
-                className="w-full bg-slate-800/80 border-2 border-cyan-500/30 rounded-xl px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-sm"
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
                 placeholder="请输入云雾 API Key"
               />
             </div>
             <div>
-              <label className="block text-sm text-blue-300/80 mb-2">API 类型</label>
+              <label className="block text-sm text-[#888] mb-2">API 类型</label>
               <select
                 value={globalConfig.model}
                 onChange={(e) => updateGlobalConfig('model', e.target.value)}
-                className="w-full bg-slate-800/80 border-2 border-cyan-500/30 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all appearance-none cursor-pointer shadow-sm"
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
               >
                 <option value="grok-video-3-10s">XAI (Grok Video)</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm text-blue-300/80 mb-2">视频比例</label>
+              <label className="block text-sm text-[#888] mb-2">视频比例</label>
               <select
                 value={globalConfig.videoRatio}
                 onChange={(e) => updateGlobalConfig('videoRatio', e.target.value)}
-                className="w-full bg-slate-800/80 border-2 border-cyan-500/30 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all appearance-none cursor-pointer shadow-sm"
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
               >
                 <option value="16:9">横屏 16:9</option>
                 <option value="9:16">竖屏 9:16</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm text-blue-300/80 mb-2">生成时长</label>
+              <label className="block text-sm text-[#888] mb-2">生成时长</label>
               <select
                 value={globalConfig.duration}
                 onChange={(e) => updateGlobalConfig('duration', Number(e.target.value))}
-                className="w-full bg-slate-800/80 border-2 border-cyan-500/30 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all appearance-none cursor-pointer shadow-sm"
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
               >
                 <option value={10}>10秒</option>
               </select>
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-4">
             <button
               onClick={addTask}
-              className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium rounded-xl hover:from-cyan-400 hover:to-blue-400 transition-all duration-200 flex items-center gap-2 shadow-lg shadow-cyan-500/30 border-2 border-cyan-400/50"
+              className="px-6 py-3 bg-[#D4AF37] text-[#1A1C1E] font-medium rounded-xl hover:bg-[#E8C860] transition-all duration-300 flex items-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -344,7 +362,7 @@ export default function Home() {
             </button>
             <button
               onClick={clearAll}
-              className="px-6 py-2.5 bg-red-900/30 text-red-400 font-medium rounded-xl hover:bg-red-800/40 transition-all duration-200 flex items-center gap-2 border-2 border-red-500/30 shadow-md"
+              className="px-6 py-3 bg-[#1A1C1E] text-[#EF4444] font-medium rounded-xl hover:bg-[#2A2C2E] transition-all duration-300 flex items-center gap-2 border border-white/10"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -355,46 +373,46 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 pb-8">
+      <div className="max-w-7xl mx-auto px-6 pb-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="bg-blue-900/30 backdrop-blur-md rounded-2xl border-2 border-cyan-500/30 shadow-xl shadow-cyan-500/5 overflow-hidden"
+              className="bg-[#222428] rounded-2xl border border-white/10 overflow-hidden" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)' }}
             >
-              <div className="flex items-center justify-between px-4 py-3 bg-blue-800/40 border-b-2 border-cyan-500/20">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-gradient-to-br from-cyan-400 to-blue-500 rounded-md flex items-center justify-center shadow-sm">
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-[#D4AF37] rounded-lg flex items-center justify-center">
+                    <svg className="w-4 h-4 text-[#1A1C1E]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   </div>
-                  <span className="text-sm font-medium text-white">任务 #{task.id}</span>
+                  <span className="text-sm font-medium text-[#E5E5E5]">任务 #{task.id}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   {isGenerating(task.status) && (
-                    <span className="px-3 py-1 bg-purple-500/80 text-white text-xs font-medium rounded-full animate-pulse">
+                    <span className="px-3 py-1 bg-[#D4AF37] text-[#1A1C1E] text-xs font-medium rounded-full">
                       生成中
                     </span>
                   )}
                   {task.status === 'completed' && (
-                    <span className="px-3 py-1 bg-green-500/80 text-white text-xs font-medium rounded-full">
+                    <span className="px-3 py-1 bg-[#22C55E] text-white text-xs font-medium rounded-full">
                       已完成
                     </span>
                   )}
                   {task.status === 'failed' && (
-                    <span className="px-3 py-1 bg-red-500/80 text-white text-xs font-medium rounded-full">
+                    <span className="px-3 py-1 bg-[#EF4444] text-white text-xs font-medium rounded-full">
                       失败
                     </span>
                   )}
                   {task.status === 'error' && (
-                    <span className="px-3 py-1 bg-red-500/80 text-white text-xs font-medium rounded-full">
+                    <span className="px-3 py-1 bg-[#EF4444] text-white text-xs font-medium rounded-full">
                       错误
                     </span>
                   )}
                   <button
                     onClick={() => deleteTask(task.id)}
-                    className="text-slate-400 hover:text-red-400 transition-colors"
+                    className="text-[#666] hover:text-[#EF4444] transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -403,20 +421,20 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="p-4 space-y-4">
+              <div className="p-5 space-y-4">
                 <div>
-                  <label className="block text-xs text-blue-300/70 mb-1">提示词</label>
+                  <label className="block text-xs text-[#888] mb-2">提示词</label>
                   <textarea
                     value={task.prompt}
                     onChange={(e) => updateTask(task.id, 'prompt', e.target.value)}
                     placeholder="描述你想要的视频..."
                     rows={3}
-                    className="w-full bg-slate-800/60 border-2 border-cyan-500/20 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 resize-none transition-all shadow-sm"
+                    className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-4 py-3 text-sm text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] resize-none transition-all"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs text-blue-300/70 mb-1">参考图（可选）</label>
+                  <label className="block text-xs text-[#888] mb-2">参考图（可选）</label>
                   <input
                     ref={(el) => { fileInputRef.current[task.id] = el; }}
                     type="file"
@@ -425,8 +443,8 @@ export default function Home() {
                     onChange={(e) => handleFileSelect(task.id, e.target.files?.[0] || null)}
                   />
                   {task.imagePreview ? (
-                    <div className="space-y-2">
-                      <div className="relative border-2 border-cyan-500/20 rounded-xl overflow-hidden bg-slate-800/40">
+                    <div className="space-y-3">
+                      <div className="relative border border-white/10 rounded-xl overflow-hidden bg-[#1A1C1E]">
                         <img src={task.imagePreview} alt="预览" className="w-full h-32 object-contain" />
                         <button
                           onClick={() => {
@@ -438,24 +456,24 @@ export default function Home() {
                               fileInput.value = '';
                             }
                           }}
-                          className="absolute top-2 right-2 w-6 h-6 bg-red-500/80 text-white rounded-full flex items-center justify-center hover:bg-red-600/80 transition-colors"
+                          className="absolute top-2 right-2 w-6 h-6 bg-[#EF4444] text-white rounded-full flex items-center justify-center hover:bg-[#DC2626] transition-colors"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                           </svg>
                         </button>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-3">
                         <input
                           type="text"
                           value={task.imageUrl}
                           onChange={(e) => updateTask(task.id, 'imageUrl', e.target.value)}
-                          className="flex-1 bg-slate-800/60 border-2 border-cyan-500/20 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 transition-all shadow-sm"
+                          className="flex-1 bg-[#1A1C1E] border border-white/10 rounded-xl px-4 py-3 text-sm text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
                           placeholder="图片 URL"
                         />
                         <button
                           onClick={() => copyToClipboard(task.imageUrl)}
-                          className="px-3 py-2 text-sm bg-cyan-500/20 text-cyan-400 border-2 border-cyan-500/30 rounded-xl hover:bg-cyan-500/30 transition-all shadow-sm"
+                          className="px-4 py-3 text-sm bg-[#1A1C1E] text-[#D4AF37] border border-[#D4AF37]/30 rounded-xl hover:bg-[#D4AF37]/10 transition-all"
                         >
                           复制
                         </button>
@@ -464,13 +482,13 @@ export default function Home() {
                   ) : (
                     <div
                       onClick={() => fileInputRef.current[task.id]?.click()}
-                      className="border-2 border-cyan-500/20 rounded-xl p-4 text-center hover:border-cyan-400 hover:bg-cyan-500/5 transition-all cursor-pointer bg-slate-800/40"
+                      className="border border-white/10 rounded-xl p-5 text-center hover:border-[#D4AF37]/50 hover:bg-[#D4AF37]/5 transition-all cursor-pointer bg-[#1A1C1E]"
                     >
                       <div className="flex flex-col items-center gap-2">
-                        <svg className="w-8 h-8 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-8 h-8 text-[#D4AF37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                         </svg>
-                        <span className="text-sm text-slate-400">点击上传</span>
+                        <span className="text-sm text-[#888]">点击上传</span>
                       </div>
                     </div>
                   )}
@@ -480,7 +498,7 @@ export default function Home() {
                   <>
                     <button
                       onClick={() => stopGeneration(task.id)}
-                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-gradient-to-r from-red-500 to-rose-500 shadow-red-500/30 border-red-400/50 hover:from-red-400 hover:to-rose-400 text-white"
+                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-[#DC2626] border-[#DC2626]/50 hover:bg-[#B91C1C] text-white"
                     >
                       <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -488,14 +506,14 @@ export default function Home() {
                       终止生成
                     </button>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-center text-sm text-cyan-400">
+                      <div className="flex items-center justify-center text-sm text-[#D4AF37]">
                         <svg className="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
                         渲染中...
                       </div>
-                      <div className="w-full h-2 bg-slate-700/60 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 animate-pulse rounded-full" style={{ width: '100%' }} />
+                      <div className="w-full h-2 bg-[#1A1C1E] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#D4AF37] animate-pulse rounded-full" style={{ width: '100%' }} />
                       </div>
                     </div>
                   </>
@@ -505,11 +523,11 @@ export default function Home() {
                     disabled={isGenerating(task.status)}
                     className={`w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 ${
                       task.status === 'completed'
-                        ? 'bg-gradient-to-r from-green-500 to-emerald-500 shadow-green-500/30 border-green-400/50 hover:from-green-400 hover:to-emerald-400'
+                        ? 'bg-[#22C55E] border-[#22C55E]/50 hover:bg-[#16A34A] text-white'
                         : task.status === 'failed' || task.status === 'error'
-                        ? 'bg-gradient-to-r from-red-500 to-rose-500 shadow-red-500/30 border-red-400/50 hover:from-red-400 hover:to-rose-400'
-                        : 'bg-gradient-to-r from-cyan-500 to-blue-500 shadow-cyan-500/30 border-cyan-400/50 hover:from-cyan-400 hover:to-blue-400'
-                    } text-white`}
+                        ? 'bg-[#EF4444] border-[#EF4444]/50 hover:bg-[#DC2626] text-white'
+                        : 'bg-[#D4AF37] border-[#D4AF37]/50 hover:bg-[#E8C860] text-[#1A1C1E]'
+                    }`}
                   >
                     {task.status === 'completed' && (
                       <>
@@ -545,7 +563,7 @@ export default function Home() {
                     </div>
                     <button
                       onClick={() => downloadVideo(task.videoUrl, task.id)}
-                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-gradient-to-r from-blue-500 to-cyan-500 shadow-blue-500/30 border-blue-400/50 hover:from-blue-400 hover:to-cyan-400 text-white"
+                      className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-[#3B82F6] border-[#3B82F6]/50 hover:bg-[#2563EB] text-white"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
