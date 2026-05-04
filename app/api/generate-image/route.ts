@@ -66,16 +66,26 @@ export async function POST(request: NextRequest) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
+      console.log('Attempting to fetch from:', apiUrl);
+      console.log('Headers:', { ...headers, Authorization: headers.Authorization ? 'Bearer ***' : undefined });
+
       response = await fetch(apiUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
         signal: controller.signal,
+        keepalive: true,
       });
 
       clearTimeout(timeoutId);
+      console.log('Fetch successful, status:', response.status);
     } catch (fetchError) {
-      console.error('FETCH ERROR:', fetchError);
+      console.error('FETCH ERROR START ====');
+      console.error('Error type:', fetchError instanceof Error ? fetchError.name : 'Unknown');
+      console.error('Error message:', fetchError instanceof Error ? fetchError.message : fetchError);
+      console.error('Stack:', fetchError instanceof Error ? fetchError.stack : 'N/A');
+      console.error('FETCH ERROR END ====');
+      
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
         return NextResponse.json(
           { error: '请求超时，请稍后重试' },
@@ -83,7 +93,7 @@ export async function POST(request: NextRequest) {
         );
       }
       return NextResponse.json(
-        { error: `Network error: ${fetchError instanceof Error ? fetchError.message : 'Unknown'}` },
+        { error: `网络错误: ${fetchError instanceof Error ? fetchError.message : 'Unknown'}` },
         { status: 503 }
       );
     }
