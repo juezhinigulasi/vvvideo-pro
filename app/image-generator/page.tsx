@@ -46,22 +46,55 @@ export default function ImageGenerator() {
 
   const ratios = ["9:16", "16:9", "1:1", "3:2", "2:3", "4:3"];
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressImage = (file: File, maxWidth = 1024, maxHeight = 1024, quality = 0.8): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // 计算缩放比例
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+          if (height > maxHeight) {
+            width = (width * maxHeight) / height;
+            height = maxHeight;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            console.log('图片压缩完成 - 原大小:', file.size, '字节, 压缩后:', compressedDataUrl.length * 0.75, '字节');
+            resolve(compressedDataUrl);
+          } else {
+            resolve(event.target?.result as string);
+          }
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       const newImages: string[] = [];
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          if (event.target?.result) {
-            newImages.push(event.target.result as string);
-            if (newImages.length === files.length) {
-              setUploadedImages(newImages);
-            }
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      for (const file of Array.from(files)) {
+        console.log('开始处理图片:', file.name, '大小:', file.size, '字节');
+        const compressedImage = await compressImage(file, 1024, 1024, 0.8);
+        newImages.push(compressedImage);
+      }
+      setUploadedImages(newImages);
+      console.log('所有图片上传完成，共:', newImages.length, '张');
     }
   };
 
