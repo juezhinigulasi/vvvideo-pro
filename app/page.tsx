@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Header from './components/Header';
+import { supabase } from './lib/supabase';
 
 type TaskStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed' | 'error';
 
@@ -16,7 +17,6 @@ interface Task {
 }
 
 interface GlobalConfig {
-  apiKey: string;
   model: string;
   videoRatio: string;
   duration: number;
@@ -42,14 +42,31 @@ export default function Home() {
   });
 
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({
-    apiKey: typeof window !== 'undefined' ? localStorage.getItem('videoApiKey') || '' : '',
     model: 'grok-video-3-10s',
     videoRatio: '16:9',
     duration: 10,
   });
 
+  const [points, setPoints] = useState(0);
+
   const pollingIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
   const fileInputRef = useRef<Record<number, HTMLInputElement | null>>({});
+
+  useEffect(() => {
+    loadUserPoints();
+  }, []);
+
+  const loadUserPoints = async () => {
+    try {
+      const response = await fetch('/api/get-user-points');
+      if (response.ok) {
+        const data = await response.json();
+        setPoints(data.points || 0);
+      }
+    } catch (error) {
+      console.error('Failed to load user points:', error);
+    }
+  };
 
   const isGenerating = (status: TaskStatus): boolean => {
     return ['pending', 'processing'].includes(status);
@@ -69,7 +86,6 @@ export default function Home() {
       { id: 3, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
     ]);
     setGlobalConfig({
-      apiKey: '',
       model: 'grok-video-3-10s',
       videoRatio: '16:9',
       duration: 10,
@@ -112,13 +128,13 @@ export default function Home() {
     reader.readAsDataURL(file);
   }, []);
 
-  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number, apiKey: string) => {
+  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number) => {
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskIdNum ? { ...t, status: 'processing' as TaskStatus } : t
     ));
 
     let pollCount = 0;
-    const maxPollCount = 120; // 最多轮询120次，约10分钟
+    const maxPollCount = 120;
 
     const pollInterval = setInterval(async () => {
       try {
@@ -128,7 +144,7 @@ export default function Home() {
         const pollResponse = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiKey, id: taskIdStr, poll: true }),
+          body: JSON.stringify({ id: taskIdStr, poll: true }),
         });
 
         const pollText = await pollResponse.text();
@@ -202,11 +218,7 @@ export default function Home() {
 
   const updateGlobalConfig = useCallback((field: keyof GlobalConfig, value: string | number) => {
     setGlobalConfig(prevConfig => {
-      const newConfig = { ...prevConfig, [field]: value };
-      if (field === 'apiKey') {
-        localStorage.setItem('videoApiKey', String(value));
-      }
-      return newConfig;
+      return { ...prevConfig, [field]: value };
     });
   }, []);
 
@@ -237,6 +249,8 @@ export default function Home() {
     }
   }, []);
 
+  const COST_PER_VIDEO = 3;
+
   const handleGenerate = useCallback(async (taskId: number) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || isGenerating(task.status)) return;
@@ -245,11 +259,25 @@ export default function Home() {
       return;
     }
 
-    const { apiKey, model, videoRatio, duration } = globalConfig;
-    if (!apiKey) {
-      alert('请检查 API 配置：API KEY 不能为空');
+    const { data } = await supabase.auth.getSession();
+    const user = data?.session?.user;
+    if (!user) {
+      alert('请先登录后再使用视频生成功能');
       return;
     }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('points')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || profile.points < COST_PER_VIDEO) {
+      alert(`积分不足！当前积分: ${profile?.points || 0}，生成视频需要 ${COST_PER_VIDEO} 积分`);
+      return;
+    }
+
+    const { model, videoRatio, duration } = globalConfig;
 
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskId ? { ...t, status: 'pending' as TaskStatus } : t
@@ -257,7 +285,6 @@ export default function Home() {
 
     const requestBody: Record<string, unknown> = {
       prompt: task.prompt,
-      apiKey,
       model,
       aspect_ratio: videoRatio,
       duration: duration,
@@ -307,7 +334,7 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, taskId: idStr } : t
         ));
-        pollTask(idStr, taskId, apiKey);
+        pollTask(idStr, taskId);
       } else {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
@@ -336,7 +363,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#1A1C1E]">
-      <Header />
+      <Header points={points} costPerVideo={COST_PER_VIDEO} />
 
       <div className="max-w-7xl mx-auto px-6 mb-8">
         <div className="bg-[#222428] backdrop-blur-md rounded-2xl border border-white/10 p-6" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}>
@@ -350,27 +377,7 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-5">
-            <div>
-              <label className="block text-sm text-[#888] mb-2">API KEY</label>
-              <input
-                type="password"
-                value={globalConfig.apiKey}
-                onChange={(e) => updateGlobalConfig('apiKey', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
-                placeholder="请输入云雾 API Key"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-[#888] mb-2">API 类型</label>
-              <select
-                value={globalConfig.model}
-                onChange={(e) => updateGlobalConfig('model', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
-              >
-                <option value="grok-video-3-10s">XAI (Grok Video)</option>
-              </select>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
             <div>
               <label className="block text-sm text-[#888] mb-2">视频比例</label>
               <select

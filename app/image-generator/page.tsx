@@ -16,12 +16,6 @@ interface GenerationRecord {
 }
 
 export default function ImageGenerator() {
-  const [apiKey, setApiKey] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('yunwuai_api_key') || '';
-    }
-    return '';
-  });
   const [mode, setMode] = useState<'text' | 'image'>('text');
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("9:16");
@@ -39,6 +33,23 @@ export default function ImageGenerator() {
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
+  const [points, setPoints] = useState(0);
+
+  useEffect(() => {
+    loadUserPoints();
+  }, []);
+
+  const loadUserPoints = async () => {
+    try {
+      const response = await fetch('/api/get-user-points');
+      if (response.ok) {
+        const data = await response.json();
+        setPoints(data.points || 0);
+      }
+    } catch (error) {
+      console.error('Failed to load user points:', error);
+    }
+  };
 
   const saveHistory = (history: GenerationRecord[]) => {
     localStorage.setItem('yunwuai_generation_history', JSON.stringify(history));
@@ -210,17 +221,13 @@ export default function ImageGenerator() {
   const handleGenerate = async () => {
     console.log('========== 开始生成图片 ==========');
     console.log('prompt:', prompt?.substring(0, 50));
-    console.log('apiKey:', apiKey ? '已设置' : '未设置');
     console.log('mode:', mode);
     console.log('uploadedImages:', uploadedImages?.length || 0, '张');
 
+    const COST_PER_IMAGE = 2;
+
     if (!prompt.trim()) {
       console.log('❌ 提示词为空');
-      return;
-    }
-    if (!apiKey.trim()) {
-      console.log('❌ API Key 为空');
-      alert('请先输入 API Key');
       return;
     }
 
@@ -241,9 +248,9 @@ export default function ImageGenerator() {
 
     console.log('profile:', profile);
     console.log('points:', profile?.points || 0);
-    if (!profile || profile.points < 10) {
+    if (!profile || profile.points < COST_PER_IMAGE) {
       console.log('❌ 积分不足');
-      alert('积分不足，请先充值！最低需要 10 积分');
+      alert(`积分不足！当前积分: ${profile?.points || 0}，生成图片需要 ${COST_PER_IMAGE} 积分`);
       return;
     }
     
@@ -275,7 +282,6 @@ export default function ImageGenerator() {
     
     try {
       const bodyData: Record<string, any> = {
-        apiKey,
         prompt,
         model: 'gpt-image-2-all',
         size: getSizeFromRatio(ratio),
@@ -441,13 +447,9 @@ export default function ImageGenerator() {
     }
   };
 
-  const handleSaveApiKey = () => {
-    localStorage.setItem('yunwuai_api_key', apiKey);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      <ImageHeader />
+      <ImageHeader points={points} costPerImage={2} />
 
       <div className="max-w-7xl mx-auto px-6 mb-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -477,21 +479,6 @@ export default function ImageGenerator() {
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-[#888] mb-2">API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onBlur={handleSaveApiKey}
-                    placeholder="请输入云雾 API Key"
-                    className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
-                  />
-                  <p className="text-[#666] text-xs mt-2">
-                    API Key 会保存在本地浏览器中
-                  </p>
-                </div>
-
                 {mode === 'image' && (
                   <div>
                     <label className="block text-sm text-[#888] mb-2">上传图片</label>
