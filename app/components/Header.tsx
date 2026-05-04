@@ -74,7 +74,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
   const fetchTransactions = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('transactions')
+        .from('point_transactions')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -83,8 +83,8 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
       if (data && !error) {
         setTransactions(data);
         const recharge = data
-          .filter((tx: any) => tx.type === 'redeem')
-          .reduce((sum: number, tx: any) => sum + tx.points_change, 0);
+          .filter((tx: any) => tx.type === 'recharge')
+          .reduce((sum: number, tx: any) => sum + tx.amount, 0);
         setTotalRecharge(recharge);
       }
     } catch (error) {
@@ -547,8 +547,8 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
                           {new Date(tx.created_at).toLocaleString('zh-CN')}
                         </p>
                       </div>
-                      <div className={`text-right font-bold ${tx.points_change > 0 ? 'text-[#4ADE80]' : 'text-[#EF4444]'}`}>
-                        {tx.points_change > 0 ? '+' : ''}{tx.points_change}
+                      <div className={`text-right font-bold ${tx.type === 'consume' ? 'text-[#EF4444]' : 'text-[#4ADE80]'}`}>
+                        {tx.type === 'consume' ? '-' : '+'}{tx.amount}
                       </div>
                     </div>
                   ))

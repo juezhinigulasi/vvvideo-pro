@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/app/lib/supabase';
 
 const API_KEY = process.env.VIDEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
@@ -179,11 +180,40 @@ export async function POST(request: Request) {
             const finalVideoUrl = statusResult.video_url || statusResult.url || statusResult.data?.video_url || statusResult.result?.video_url || statusResult.output_url;
             console.log('✅ 最终使用的视频URL:', finalVideoUrl);
 
+            // 扣除积分
+            let pointsDeducted = false;
+            if (user_id) {
+              try {
+                const { data, error } = await supabase.rpc('deduct_points', { 
+                  user_id: user_id,
+                  amount: COST_PER_VIDEO 
+                });
+                if (!error && data) {
+                  pointsDeducted = true;
+                  console.log('✅ 积分扣除成功:', COST_PER_VIDEO);
+                  
+                  // 添加积分记录
+                  await supabase.from('point_transactions').insert({
+                    user_id: user_id,
+                    type: 'consume',
+                    amount: COST_PER_VIDEO,
+                    description: '生成视频',
+                    metadata: { prompt: prompt?.substring(0, 100) },
+                  });
+                  console.log('✅ 积分记录已添加');
+                } else {
+                  console.error('❌ 积分扣除失败:', error);
+                }
+              } catch (e) {
+                console.error('❌ 积分扣除异常:', e);
+              }
+            }
+
             return NextResponse.json({
               id: taskId,
               status: 'completed',
               video_url: finalVideoUrl,
-              cost: COST_PER_VIDEO,
+              cost: pointsDeducted ? COST_PER_VIDEO : 0,
             });
           } else if (statusResult.status === 'failed' || statusResult.status === 'error') {
             console.error('❌ 视频生成失败:', statusResult);

@@ -286,6 +286,7 @@ export default function ImageGenerator() {
         model: 'gpt-image-2-all',
         size: getSizeFromRatio(ratio),
         n: 1,
+        user_id: user.id,
       };
 
       if (mode === 'image' && uploadedImages.length > 0) {

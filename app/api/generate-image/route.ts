@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/app/lib/supabase';
 
 const API_KEY = process.env.IMAGE_API_KEY || '';
 const COST_PER_IMAGE = 2;
@@ -116,10 +117,39 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // 扣除积分
+      let pointsDeducted = false;
+      if (user_id) {
+        try {
+          const { data, error } = await supabase.rpc('deduct_points', { 
+            user_id: user_id,
+            amount: COST_PER_IMAGE 
+          });
+          if (!error && data) {
+            pointsDeducted = true;
+            console.log('✅ 积分扣除成功:', COST_PER_IMAGE);
+            
+            // 添加积分记录
+            await supabase.from('point_transactions').insert({
+              user_id: user_id,
+              type: 'consume',
+              amount: COST_PER_IMAGE,
+              description: '生成图片',
+              metadata: { prompt: prompt?.substring(0, 100) },
+            });
+            console.log('✅ 积分记录已添加');
+          } else {
+            console.error('❌ 积分扣除失败:', error);
+          }
+        } catch (e) {
+          console.error('❌ 积分扣除异常:', e);
+        }
+      }
+
       return NextResponse.json({
         status: 'completed',
         urls: urls,
-        cost: COST_PER_IMAGE,
+        cost: pointsDeducted ? COST_PER_IMAGE : 0,
       });
 
     } catch (fetchError) {

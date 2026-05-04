@@ -288,6 +288,7 @@ export default function Home() {
       model,
       aspect_ratio: videoRatio,
       duration: duration,
+      user_id: user.id,
     };
 
     if (task.imageUrl && task.imageUrl.trim()) {
