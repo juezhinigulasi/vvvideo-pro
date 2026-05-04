@@ -192,18 +192,27 @@ export async function POST(request: Request) {
           const statusResult = JSON.parse(statusText);
 
           if (statusResult.status === 'completed') {
-            console.log('✅ 视频生成成功:', statusResult);
+            console.log('✅ 视频生成成功!');
+            console.log('✅ 完整响应对象:', JSON.stringify(statusResult, null, 2));
             console.log('✅ 视频URL字段检查:', {
               hasVideoUrl: !!statusResult.video_url,
               hasUrl: !!statusResult.url,
+              hasData: !!statusResult.data,
+              hasResult: !!statusResult.result,
               videoUrl: statusResult.video_url,
               url: statusResult.url,
+              dataVideoUrl: statusResult.data?.video_url,
+              resultVideoUrl: statusResult.result?.video_url,
               allKeys: Object.keys(statusResult)
             });
+
+            const finalVideoUrl = statusResult.video_url || statusResult.url || statusResult.data?.video_url || statusResult.result?.video_url || statusResult.output_url;
+            console.log('✅ 最终使用的视频URL:', finalVideoUrl);
+
             return NextResponse.json({
               id: taskId,
               status: 'completed',
-              video_url: statusResult.video_url || statusResult.url || statusResult.data?.video_url,
+              video_url: finalVideoUrl,
             });
           } else if (statusResult.status === 'failed') {
             console.error('❌ 视频生成失败:', statusResult);
