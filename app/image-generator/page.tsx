@@ -403,6 +403,9 @@ export default function ImageGenerator() {
           saveHistory(updated);
           return updated;
         });
+
+        // 刷新积分显示
+        loadUserPoints();
       } else {
         console.warn('No images returned in response');
         throw new Error('API 返回的数据格式不正确');

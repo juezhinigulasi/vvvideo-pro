@@ -176,6 +176,8 @@ export default function Home() {
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl } : t
           ));
+          // 刷新积分显示
+          loadUserPoints();
         } else if (pollResult.status === 'failed') {
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
@@ -325,6 +327,8 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'completed' as TaskStatus, videoUrl: data.video_url, taskId: data.id } : t
         ));
+        // 刷新积分显示
+        loadUserPoints();
       } else if (data.status === 'failed') {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'failed' as TaskStatus } : t
