@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// 从环境变量获取 API Key
+const API_KEY = process.env.IMAGE_API_KEY || '';
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    const { apiKey, prompt, model, size, n = 1, image } = await request.json();
+    const { prompt, model, size, n = 1, image } = await request.json();
 
     console.log('========== Image Generation Request Started ==========');
     console.log('Timestamp:', new Date().toISOString());
     console.log('Request body:', {
-      hasApiKey: !!apiKey,
-      apiKeyLength: apiKey?.length || 0,
       hasPrompt: !!prompt,
       promptLength: prompt?.length || 0,
       model,
@@ -20,11 +21,12 @@ export async function POST(request: NextRequest) {
       imageCount: image?.length || 0,
     });
 
-    if (!apiKey) {
-      console.error('ERROR: API key is required');
+    // 检查环境变量中是否配置了 API Key
+    if (!API_KEY) {
+      console.error('ERROR: 环境变量 IMAGE_API_KEY 未配置');
       return NextResponse.json(
-        { error: 'API key is required' },
-        { status: 400 }
+        { error: '服务器配置错误，请联系管理员' },
+        { status: 500 }
       );
     }
 
@@ -44,22 +46,17 @@ export async function POST(request: NextRequest) {
     };
 
     if (image && Array.isArray(image) && image.length > 0) {
-      // 图生图模式：处理图片数据，保持完整的 Data URL 格式
       console.log('检测到图生图模式，图片数量:', image.length);
       console.log('第一张图片格式:', image[0]?.startsWith('data:') ? 'Data URL' : '纯 base64');
       
-      // 尝试两种格式：先尝试完整的 Data URL
       if (image[0]?.startsWith('data:')) {
-        // 使用完整的 Data URL
         requestBody.image = image;
         console.log('使用完整 Data URL 格式');
       } else {
-        // 使用纯 base64
         requestBody.image = image;
         console.log('使用纯 base64 格式');
       }
       
-      // 添加图生图特定参数
       requestBody.mode = 'image-to-image';
       console.log('已添加图生图模式参数');
       console.log('第一张图片数据长度:', image[0]?.length || 0, '字符');
@@ -73,12 +70,10 @@ export async function POST(request: NextRequest) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`,
     };
 
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-      console.log('Authorization header added');
-    }
+    console.log('Headers:', { ...headers, Authorization: 'Bearer ***' });
 
     let response;
     try {
@@ -86,7 +81,6 @@ export async function POST(request: NextRequest) {
       const timeoutId = setTimeout(() => controller.abort(), 120000);
 
       console.log('Attempting to fetch from:', apiUrl);
-      console.log('Headers:', { ...headers, Authorization: headers.Authorization ? 'Bearer ***' : undefined });
 
       response = await fetch(apiUrl, {
         method: 'POST',

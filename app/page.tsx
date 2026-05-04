@@ -16,7 +16,6 @@ interface Task {
 }
 
 interface GlobalConfig {
-  apiKey: string;
   model: string;
   videoRatio: string;
   duration: number;
@@ -42,7 +41,6 @@ export default function Home() {
   });
 
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({
-    apiKey: typeof window !== 'undefined' ? localStorage.getItem('videoApiKey') || '' : '',
     model: 'grok-video-3-10s',
     videoRatio: '16:9',
     duration: 10,
@@ -69,7 +67,6 @@ export default function Home() {
       { id: 3, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '' },
     ]);
     setGlobalConfig({
-      apiKey: '',
       model: 'grok-video-3-10s',
       videoRatio: '16:9',
       duration: 10,
@@ -112,7 +109,7 @@ export default function Home() {
     reader.readAsDataURL(file);
   }, []);
 
-  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number, apiKey: string) => {
+  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number) => {
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskIdNum ? { ...t, status: 'processing' as TaskStatus } : t
     ));
@@ -128,7 +125,7 @@ export default function Home() {
         const pollResponse = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiKey, id: taskIdStr, poll: true }),
+          body: JSON.stringify({ id: taskIdStr, poll: true }),
         });
 
         const pollText = await pollResponse.text();
@@ -201,13 +198,10 @@ export default function Home() {
   };
 
   const updateGlobalConfig = useCallback((field: keyof GlobalConfig, value: string | number) => {
-    setGlobalConfig(prevConfig => {
-      const newConfig = { ...prevConfig, [field]: value };
-      if (field === 'apiKey') {
-        localStorage.setItem('videoApiKey', String(value));
-      }
-      return newConfig;
-    });
+    setGlobalConfig(prevConfig => ({
+      ...prevConfig,
+      [field]: value,
+    }));
   }, []);
 
   const downloadVideo = useCallback(async (videoUrl: string, taskId: number) => {
@@ -245,11 +239,7 @@ export default function Home() {
       return;
     }
 
-    const { apiKey, model, videoRatio, duration } = globalConfig;
-    if (!apiKey) {
-      alert('请检查 API 配置：API KEY 不能为空');
-      return;
-    }
+    const { model, videoRatio, duration } = globalConfig;
 
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskId ? { ...t, status: 'pending' as TaskStatus } : t
@@ -257,7 +247,6 @@ export default function Home() {
 
     const requestBody: Record<string, unknown> = {
       prompt: task.prompt,
-      apiKey,
       model,
       aspect_ratio: videoRatio,
       duration: duration,
@@ -307,7 +296,7 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, taskId: idStr } : t
         ));
-        pollTask(idStr, taskId, apiKey);
+        pollTask(idStr, taskId);
       } else {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
@@ -350,27 +339,7 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-5 mb-5">
-            <div>
-              <label className="block text-sm text-[#888] mb-2">API KEY</label>
-              <input
-                type="password"
-                value={globalConfig.apiKey}
-                onChange={(e) => updateGlobalConfig('apiKey', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
-                placeholder="请输入云雾 API Key"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-[#888] mb-2">API 类型</label>
-              <select
-                value={globalConfig.model}
-                onChange={(e) => updateGlobalConfig('model', e.target.value)}
-                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
-              >
-                <option value="grok-video-3-10s">XAI (Grok Video)</option>
-              </select>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
             <div>
               <label className="block text-sm text-[#888] mb-2">视频比例</label>
               <select
@@ -390,6 +359,16 @@ export default function Home() {
                 className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
               >
                 <option value={10}>10秒</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-[#888] mb-2">模型类型</label>
+              <select
+                value={globalConfig.model}
+                onChange={(e) => updateGlobalConfig('model', e.target.value)}
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
+              >
+                <option value="grok-video-3-10s">XAI (Grok Video)</option>
               </select>
             </div>
           </div>
@@ -530,7 +509,7 @@ export default function Home() {
                     >
                       <div className="flex flex-col items-center gap-2">
                         <svg className="w-8 h-8 text-[#D4AF37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 0 002 2z" />
                         </svg>
                         <span className="text-sm text-[#888]">点击上传</span>
                       </div>

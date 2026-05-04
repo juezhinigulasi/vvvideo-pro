@@ -16,12 +16,6 @@ interface GenerationRecord {
 }
 
 export default function ImageGenerator() {
-  const [apiKey, setApiKey] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('yunwuai_api_key') || '';
-    }
-    return '';
-  });
   const [mode, setMode] = useState<'text' | 'image'>('text');
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("9:16");
@@ -52,15 +46,13 @@ export default function ImageGenerator() {
       reader.onload = (event) => {
         const img = new Image();
         img.onload = () => {
-          // 目标大小：4MB = 4 * 1024 * 1024 = 4194304 字节
           const MAX_SIZE = 4 * 1024 * 1024;
-          const MAX_DIMENSION = 1536; // 最大尺寸
+          const MAX_DIMENSION = 1536;
           
           let width = img.width;
           let height = img.height;
-          let quality = 0.9; // 初始质量
+          let quality = 0.9;
           
-          // 第一步：缩放图片到最大尺寸
           if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
             const ratio = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
             width = Math.round(width * ratio);
@@ -72,41 +64,37 @@ export default function ImageGenerator() {
             canvas.width = width;
             canvas.height = height;
             const ctx = canvas.getContext('2d');
-            
+
             if (!ctx) {
               resolve(event.target?.result as string);
               return;
             }
-            
-            // 绘制图片
+
             ctx.drawImage(img, 0, 0, width, height);
-            
-            // 转换为 base64
+
             const compressedDataUrl = canvas.toDataURL('image/jpeg', currentQuality);
-            const compressedSize = compressedDataUrl.length * 0.75; // base64 大约增加 33%
-            
+            const compressedSize = compressedDataUrl.length * 0.75;
+
             console.log(`压缩尝试 - 质量: ${(currentQuality * 100).toFixed(0)}%, 大小: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`);
-            
-            // 如果还太大，降低质量继续压缩
+
             if (compressedSize > MAX_SIZE && currentQuality > 0.1) {
-              // 如果尺寸还能缩小，先缩小尺寸
               if (width > 512 || height > 512) {
                 width = Math.round(width * 0.8);
                 height = Math.round(height * 0.8);
               }
-              // 降低质量
               compress(Math.max(0.1, currentQuality - 0.1));
             } else {
               console.log(`图片压缩完成 - 原大小: ${(file.size / 1024 / 1024).toFixed(2)} MB, 压缩后: ${(compressedSize / 1024 / 1024).toFixed(2)} MB, 质量: ${(currentQuality * 100).toFixed(0)}%`);
               resolve(compressedDataUrl);
             }
           };
-          
-          // 开始压缩
+
           compress(quality);
         };
+
         img.src = event.target?.result as string;
       };
+
       reader.readAsDataURL(file);
     });
   };
@@ -131,14 +119,12 @@ export default function ImageGenerator() {
 
   const toggleVoiceInput = () => {
     if (isRecording) {
-      // 停止录音
       if (recognition) {
         recognition.stop();
         setRecognition(null);
       }
       setIsRecording(false);
     } else {
-      // 开始录音
       if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
         const rec = new SpeechRecognition();
@@ -151,7 +137,6 @@ export default function ImageGenerator() {
           for (let i = event.resultIndex; i < event.results.length; i++) {
             newTranscript += event.results[i][0].transcript;
           }
-          // 追加到现有提示词后面，而不是替换
           setPrompt(prev => prev + newTranscript);
         };
 
@@ -165,8 +150,6 @@ export default function ImageGenerator() {
         };
 
         rec.onend = () => {
-          // 手动模式：录音结束后不自动重新开始
-          // 用户需要手动点击结束
         };
 
         rec.start();
@@ -211,17 +194,11 @@ export default function ImageGenerator() {
   const handleGenerate = async () => {
     console.log('========== 开始生成图片 ==========');
     console.log('prompt:', prompt?.substring(0, 50));
-    console.log('apiKey:', apiKey ? '已设置' : '未设置');
     console.log('mode:', mode);
     console.log('uploadedImages:', uploadedImages?.length || 0, '张');
 
     if (!prompt.trim()) {
       console.log('❌ 提示词为空');
-      return;
-    }
-    if (!apiKey.trim()) {
-      console.log('❌ API Key 为空');
-      alert('请先输入 API Key');
       return;
     }
 
@@ -276,7 +253,6 @@ export default function ImageGenerator() {
     
     try {
       const bodyData: Record<string, any> = {
-        apiKey,
         prompt,
         model: 'gpt-image-2-all',
         size: getSizeFromRatio(ratio),
@@ -291,16 +267,15 @@ export default function ImageGenerator() {
 
       console.log('Sending request to /api/generate-image:', {
         mode,
-        bodyData: { ...bodyData, apiKey: '***', image: bodyData.image ? '[' + bodyData.image.length + ' images]' : undefined },
+        bodyData: { ...bodyData, image: bodyData.image ? '[' + bodyData.image.length + ' images]' : undefined },
       });
 
       console.log('========== 发送图生图请求 ==========');
       console.log('请求体大小:', JSON.stringify(bodyData).length, '字节');
       console.log('图片数据长度:', bodyData.image ? bodyData.image[0]?.length : 'N/A');
       
-      // 检查请求体大小是否超过限制（4MB = 4 * 1024 * 1024 = 4194304 字节）
       const requestSize = JSON.stringify(bodyData).length;
-      const maxSize = 4 * 1024 * 1024; // 4MB
+      const maxSize = 4 * 1024 * 1024;
       if (requestSize > maxSize) {
         const errorMsg = `图片文件过大，请压缩后重试！当前大小: ${(requestSize / 1024 / 1024).toFixed(2)} MB，最大限制: 4 MB`;
         console.error(errorMsg);
@@ -332,17 +307,14 @@ export default function ImageGenerator() {
         
         console.error('Parsed error:', errorData);
         
-        // 转换错误信息为中文
         let errorMsg = errorData.error || errorData.message || errorData.detail || errorData.msg || `请求失败: ${response.status}`;
         
-        // 确保 errorMsg 是字符串
         if (typeof errorMsg !== 'string') {
           errorMsg = JSON.stringify(errorMsg);
         }
         
         console.log('原始错误信息:', errorMsg);
         
-        // 替换常见的英文错误信息（不区分大小写）
         const lowerMsg = errorMsg.toLowerCase();
         
         if (lowerMsg.includes('request entity too large') || 
@@ -362,7 +334,7 @@ export default function ImageGenerator() {
         } else if (lowerMsg.includes('unauthorized') || 
                    lowerMsg.includes('invalid key') || 
                    lowerMsg.includes('api key')) {
-          errorMsg = 'API Key 无效，请检查您的 API Key';
+          errorMsg = 'API 配置错误，请联系管理员';
         } else if (lowerMsg.includes('forbidden') || lowerMsg.includes('403')) {
           errorMsg = '访问被拒绝，请检查权限';
         } else if (lowerMsg.includes('not found') || lowerMsg.includes('404')) {
@@ -442,10 +414,6 @@ export default function ImageGenerator() {
     }
   };
 
-  const handleSaveApiKey = () => {
-    localStorage.setItem('yunwuai_api_key', apiKey);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       <ImageHeader />
@@ -478,21 +446,6 @@ export default function ImageGenerator() {
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm text-[#888] mb-2">API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onBlur={handleSaveApiKey}
-                    placeholder="请输入云雾 API Key"
-                    className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
-                  />
-                  <p className="text-[#666] text-xs mt-2">
-                    API Key 会保存在本地浏览器中
-                  </p>
-                </div>
-
                 {mode === 'image' && (
                   <div>
                     <label className="block text-sm text-[#888] mb-2">上传图片</label>
@@ -690,7 +643,6 @@ export default function ImageGenerator() {
                             </div>
                           )}
                           
-                          {/* 删除按钮 */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -699,7 +651,7 @@ export default function ImageGenerator() {
                             className="absolute top-2 right-2 p-1.5 bg-[#EF4444]/90 hover:bg-[#DC2626] rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 z-10"
                           >
                             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                           </button>
 
@@ -711,8 +663,8 @@ export default function ImageGenerator() {
                                   className="p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
                                 >
                                   <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                   </svg>
                                 </button>
                                 <button
@@ -720,7 +672,7 @@ export default function ImageGenerator() {
                                   className="p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
                                 >
                                   <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                   </svg>
                                 </button>
                               </>

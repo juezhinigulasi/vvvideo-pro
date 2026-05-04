@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
 
+// 从环境变量获取 API Key
+const API_KEY = process.env.VIDEO_API_KEY || '';
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { prompt, model, input_reference, apiKey, poll, id, aspect_ratio, duration } = body;
+    const { prompt, model, input_reference, poll, id, aspect_ratio, duration } = body;
 
-    if (poll && apiKey) {
+    // 检查环境变量中是否配置了 API Key
+    if (!API_KEY) {
+      console.error('❌ 环境变量 VIDEO_API_KEY 未配置');
+      return NextResponse.json({ error: '服务器配置错误，请联系管理员' }, { status: 500 });
+    }
+
+    if (poll && id) {
       const taskId = id;
       if (!taskId) {
         console.error('[轮询] 缺少任务ID');
@@ -21,7 +30,7 @@ export async function POST(request: Request) {
         const response = await fetch(statusUrl, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            'Authorization': `Bearer ${API_KEY}`,
             'Content-Type': 'application/json',
           },
           signal: AbortSignal.timeout(30000),
@@ -82,14 +91,9 @@ export async function POST(request: Request) {
     console.log('prompt:', prompt);
     console.log('model:', model);
     console.log('input_reference:', input_reference || '无参考图');
-    console.log('apiKey:', apiKey ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : '空');
     console.log('aspect_ratio:', aspect_ratio);
+    console.log('duration:', duration);
     console.log('========================================');
-
-    if (!apiKey) {
-      console.error('❌ API Key 未提供');
-      return NextResponse.json({ error: '请先在前端配置 API Key' }, { status: 401 });
-    }
 
     if (!prompt) {
       console.error('❌ 参数不完整：缺少 prompt');
@@ -125,7 +129,7 @@ export async function POST(request: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${API_KEY}`,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -144,7 +148,7 @@ export async function POST(request: Request) {
         if (response.status === 404) {
           errorDetail = '404 - 接口地址不存在';
         } else if (response.status === 401) {
-          errorDetail = '401 - 认证失败，请检查API Key';
+          errorDetail = '401 - 认证失败，请检查服务器配置';
         } else if (response.status === 403) {
           errorDetail = '403 - 权限不足';
         } else if (response.status === 500) {
@@ -195,7 +199,7 @@ export async function POST(request: Request) {
           const statusResponse = await fetch(queryUrl, {
             method: 'GET',
             headers: {
-              'Authorization': `Bearer ${apiKey}`,
+              'Authorization': `Bearer ${API_KEY}`,
             },
             signal: AbortSignal.timeout(30000),
           });
