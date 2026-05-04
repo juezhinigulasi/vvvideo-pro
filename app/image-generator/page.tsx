@@ -37,6 +37,8 @@ export default function ImageGenerator() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recognition, setRecognition] = useState<any>(null);
 
   const saveHistory = (history: GenerationRecord[]) => {
     localStorage.setItem('yunwuai_generation_history', JSON.stringify(history));
@@ -65,6 +67,56 @@ export default function ImageGenerator() {
 
   const removeUploadedImage = (index: number) => {
     setUploadedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleVoiceInput = () => {
+    if (isRecording) {
+      // 停止录音
+      if (recognition) {
+        recognition.stop();
+        setRecognition(null);
+      }
+      setIsRecording(false);
+    } else {
+      // 开始录音
+      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const rec = new SpeechRecognition();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = 'zh-CN';
+
+        rec.onresult = (event: any) => {
+          let transcript = '';
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            transcript += event.results[i][0].transcript;
+          }
+          setPrompt(transcript);
+        };
+
+        rec.onerror = (event: any) => {
+          console.error('语音识别错误:', event.error);
+          setIsRecording(false);
+          setRecognition(null);
+          if (event.error === 'not-allowed') {
+            alert('请在浏览器设置中允许麦克风权限');
+          }
+        };
+
+        rec.onend = () => {
+          if (isRecording) {
+            // 如果还在录音状态，重新开始
+            rec.start();
+          }
+        };
+
+        rec.start();
+        setRecognition(rec);
+        setIsRecording(true);
+      } else {
+        alert('您的浏览器不支持语音识别功能');
+      }
+    }
   };
 
   const getSizeFromRatio = (ratio: string): string => {
@@ -337,14 +389,38 @@ export default function ImageGenerator() {
                     <span className="w-2 h-2 bg-cyan-400 rounded-full"></span>
                     提示词
                   </label>
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="根据主题描述生成内容，描述生成的场景，主题，一键成片"
-                    className="w-full h-32 p-4 bg-gray-900/80 border border-gray-700 rounded-xl text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 resize-none transition-all text-sm"
-                  />
+                  <div className="relative">
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="根据主题描述生成内容，描述生成的场景，主题，一键成片"
+                      className="w-full h-32 p-4 bg-gray-900/80 border border-gray-700 rounded-xl text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 resize-none transition-all text-sm"
+                    />
+                    <button
+                      onClick={toggleVoiceInput}
+                      className={`absolute bottom-3 right-3 w-9 h-9 rounded-full flex items-center justify-center transition-all duration-300 ${
+                        isRecording 
+                          ? 'bg-red-500 text-white animate-pulse' 
+                          : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'
+                      }`}
+                      title={isRecording ? '停止录音' : '语音输入'}
+                    >
+                      {isRecording ? (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M12 14c1.66 0 2.99-1.34 2.99-3S13.66 8 12 8 9 9.34 9 11s1.34 3 3 3zm5.66-1.34c0-2.21-1.79-4-4-4s-4 1.79-4 4 1.79 4 4 4h.06l2.28-2.28z"/>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                   <div className="flex items-center justify-end mt-2">
-                    <span className="text-xs text-gray-500">0/5000</span>
+                    <span className="text-xs text-gray-500">{prompt.length}/5000</span>
+                    {isRecording && (
+                      <span className="text-xs text-red-400 ml-2 animate-pulse">正在录音...</span>
+                    )}
                   </div>
                 </div>
 
