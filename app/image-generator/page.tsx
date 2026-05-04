@@ -274,6 +274,16 @@ export default function ImageGenerator() {
       console.log('请求体大小:', JSON.stringify(bodyData).length, '字节');
       console.log('图片数据长度:', bodyData.image ? bodyData.image[0]?.length : 'N/A');
       
+      // 检查请求体大小是否超过限制（4MB = 4 * 1024 * 1024 = 4194304 字节）
+      const requestSize = JSON.stringify(bodyData).length;
+      const maxSize = 4 * 1024 * 1024; // 4MB
+      if (requestSize > maxSize) {
+        const errorMsg = `图片文件过大，请压缩后重试！当前大小: ${(requestSize / 1024 / 1024).toFixed(2)} MB，最大限制: 4 MB`;
+        console.error(errorMsg);
+        alert(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
       const response = await fetch('/api/generate-image', {
         method: 'POST',
         headers: {
@@ -297,7 +307,22 @@ export default function ImageGenerator() {
         }
         
         console.error('Parsed error:', errorData);
-        throw new Error(errorData.error || errorData.message || `请求失败: ${response.status}`);
+        
+        // 转换错误信息为中文
+        let errorMsg = errorData.error || errorData.message || `请求失败: ${response.status}`;
+        
+        // 替换常见的英文错误信息
+        if (errorMsg.includes('Request Entity Too Large') || errorMsg.includes('FUNCTION_PAYLOAD_TOO_LARGE')) {
+          errorMsg = '图片文件过大，请尝试上传更小的图片或使用图片压缩工具';
+        } else if (errorMsg.includes('413')) {
+          errorMsg = '请求过大，请压缩图片后重试';
+        } else if (errorMsg.includes('timeout')) {
+          errorMsg = '请求超时，请稍后重试';
+        } else if (errorMsg.includes('network')) {
+          errorMsg = '网络错误，请检查网络连接';
+        }
+        
+        throw new Error(errorMsg);
       }
 
       const data = await response.json();
