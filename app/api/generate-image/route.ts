@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
-import { supabaseServer } from '@/app/lib/supabase-server';
+import { getSupabaseServer } from '@/app/lib/supabase-server';
 
 const API_KEY = process.env.IMAGE_API_KEY || '';
 const COST_PER_IMAGE = 2;
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       console.log('💰 当前积分:', profile.points);
       console.log('💰 扣减后积分:', (profile.points || 0) - COST_PER_IMAGE);
       
-      const { error: updateError } = await supabaseServer
+      const { error: updateError } = await getSupabaseServer()
         .from('profiles')
         .update({ points: (profile.points || 0) - COST_PER_IMAGE })
         .eq('id', user_id);
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       console.log('✅ 积分扣减成功');
       
       // 验证更新结果
-      const { data: updatedProfile, error: verifyError } = await supabaseServer
+      const { data: updatedProfile, error: verifyError } = await getSupabaseServer()
         .from('profiles')
         .select('points')
         .eq('id', user_id)
@@ -98,8 +98,8 @@ export async function POST(request: NextRequest) {
 
       if (insertError) {
         console.error('❌ 记录账单失败:', insertError.message);
-        // 返还积分
-        await supabase.from('profiles')
+        // 返还积分（使用服务端密钥）
+        await getSupabaseServer().from('profiles')
           .update({ points: (profile.points || 0) })
           .eq('id', user_id);
         return NextResponse.json({ error: '记录账单失败: ' + insertError.message }, { status: 500 });

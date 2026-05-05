@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
-import { supabaseServer } from '@/app/lib/supabase-server';
+import { getSupabaseServer } from '@/app/lib/supabase-server';
 
 const API_KEY = process.env.VIDEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
 
       // 扣减积分（使用服务端密钥绕过 RLS）
       console.log('💰 开始扣减积分:', COST_PER_VIDEO);
-      const { error: updateError } = await supabaseServer
+      const { error: updateError } = await getSupabaseServer()
         .from('profiles')
         .update({ points: originalPoints - COST_PER_VIDEO })
         .eq('id', user_id);
@@ -91,8 +91,8 @@ export async function POST(request: Request) {
 
       if (insertError) {
         console.error('❌ 记录账单失败:', insertError.message);
-        // 返还积分
-        await supabase.from('profiles')
+        // 返还积分（使用服务端密钥）
+        await getSupabaseServer().from('profiles')
           .update({ points: originalPoints })
           .eq('id', user_id);
         return NextResponse.json({ error: '记录账单失败: ' + insertError.message }, { status: 500 });
