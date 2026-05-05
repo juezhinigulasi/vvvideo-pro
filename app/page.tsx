@@ -199,6 +199,10 @@ export default function Home() {
           ));
           // 刷新积分显示
           loadUserCredits();
+          // 刷新 Header 组件的积分显示
+          if ((window as any).refreshUserCredits) {
+            (window as any).refreshUserCredits();
+          }
         } else if (pollResult.status === 'failed') {
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
@@ -350,6 +354,10 @@ export default function Home() {
         ));
         // 刷新积分显示
         loadUserCredits();
+        // 刷新 Header 组件的积分显示
+        if ((window as any).refreshUserCredits) {
+          (window as any).refreshUserCredits();
+        }
       } else if (data.status === 'failed') {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'failed' as TaskStatus } : t
