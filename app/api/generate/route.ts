@@ -208,22 +208,33 @@ async function handlePollTask(id: string, userId: string) {
 
     const result = JSON.parse(responseText);
     
+    console.log('📋 云雾API原始响应:', JSON.stringify(result));
+    
     // 统一返回格式，确保与前端期望一致
+    // 处理成功状态
     if (result.status === 'completed' || result.status === 'success') {
       const videoUrl = result.video_url || result.url || result.data?.video_url;
+      console.log('✅ 视频生成完成，URL:', videoUrl);
       return NextResponse.json({
         status: 'completed',
         video_url: videoUrl,
       });
-    } else if (result.status === 'failed' || result.status === 'error') {
+    }
+    // 处理失败状态
+    else if (result.status === 'failed' || result.status === 'error') {
+      const errorMsg = result.error || result.message || '视频生成失败';
+      console.log('❌ 视频生成失败:', errorMsg);
       return NextResponse.json({
         status: 'failed',
-        error: result.error || result.message || '视频生成失败',
+        error: errorMsg,
       });
-    } else {
-      // 任务进行中
+    }
+    // 处理进行中状态（包括 pending, processing, running 等）
+    else {
+      console.log('⏳ 任务进行中，当前状态:', result.status);
       return NextResponse.json({
         status: 'processing',
+        current_status: result.status,
       });
     }
 
