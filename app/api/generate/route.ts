@@ -209,7 +209,25 @@ async function handlePollTask(id: string, userId: string) {
     }
 
     const result = JSON.parse(responseText);
-    return NextResponse.json(result);
+    
+    // 统一返回格式，确保与前端期望一致
+    if (result.status === 'completed' || result.status === 'success') {
+      const videoUrl = result.video_url || result.url || result.data?.video_url;
+      return NextResponse.json({
+        status: 'completed',
+        video_url: videoUrl,
+      });
+    } else if (result.status === 'failed' || result.status === 'error') {
+      return NextResponse.json({
+        status: 'failed',
+        error: result.error || result.message || '视频生成失败',
+      });
+    } else {
+      // 任务进行中
+      return NextResponse.json({
+        status: 'processing',
+      });
+    }
 
   } catch (fetchError) {
     clearTimeout(timeoutId);
