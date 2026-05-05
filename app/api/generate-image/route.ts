@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
     console.log('========== 图片生成请求 ==========');
     console.log('user_id:', user_id);
     console.log('prompt:', prompt?.substring(0, 50));
+    console.log('API_KEY configured:', API_KEY ? 'Yes' : 'No');
 
     // 检查 API Key
     if (!API_KEY) {
@@ -28,8 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. 检查并扣除积分
-    let deductSuccess = true;
-    let deductError = '';
+    console.log('🔍 开始检查积分...');
     
     try {
       const { data: profile, error: profileError } = await supabase
@@ -38,44 +38,62 @@ export async function POST(request: NextRequest) {
         .eq('id', user_id)
         .single();
 
-      if (profileError || !profile) {
-        deductError = '获取用户信息失败';
-        deductSuccess = false;
-      } else if ((profile.points || 0) < COST_PER_IMAGE) {
-        deductError = `积分不足！当前积分: ${profile.points || 0}`;
-        deductSuccess = false;
-      } else {
-        // 扣减积分
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ points: (profile.points || 0) - COST_PER_IMAGE })
-          .eq('id', user_id);
+      console.log('📊 查询用户信息结果:', { profile, profileError });
 
-        if (updateError) {
-          deductError = '扣减积分失败';
-          deductSuccess = false;
-        } else {
-          // 记录账单
-          await supabase.from('billing_history').insert({
-            user_id,
-            type: 'image_gen',
-            amount: -COST_PER_IMAGE,
-            description: '生成 AI 图片',
-          });
-          console.log('✅ 积分已扣除:', COST_PER_IMAGE);
-        }
+      if (profileError) {
+        console.error('❌ 获取用户信息失败:', profileError.message);
+        return NextResponse.json({ error: '获取用户信息失败: ' + profileError.message }, { status: 400 });
       }
-    } catch (e) {
-      deductError = '积分操作异常';
-      deductSuccess = false;
-    }
 
-    if (!deductSuccess) {
-      console.error('❌ 扣费失败:', deductError);
-      return NextResponse.json({ error: deductError }, { status: 400 });
+      if (!profile) {
+        console.error('❌ 用户不存在');
+        return NextResponse.json({ error: '用户不存在' }, { status: 400 });
+      }
+
+      if ((profile.points || 0) < COST_PER_IMAGE) {
+        console.error('❌ 积分不足:', profile.points);
+        return NextResponse.json({ error: `积分不足！当前积分: ${profile.points || 0}，需要 ${COST_PER_IMAGE} 积分` }, { status: 400 });
+      }
+
+      // 扣减积分
+      console.log('💰 开始扣减积分:', COST_PER_IMAGE);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ points: (profile.points || 0) - COST_PER_IMAGE })
+        .eq('id', user_id);
+
+      if (updateError) {
+        console.error('❌ 扣减积分失败:', updateError.message);
+        return NextResponse.json({ error: '扣减积分失败: ' + updateError.message }, { status: 500 });
+      }
+
+      // 记录账单
+      console.log('📝 记录账单...');
+      const { error: insertError } = await supabase.from('billing_history').insert({
+        user_id,
+        type: 'image_gen',
+        amount: -COST_PER_IMAGE,
+        description: '生成 AI 图片',
+      });
+
+      if (insertError) {
+        console.error('❌ 记录账单失败:', insertError.message);
+        // 返还积分
+        await supabase.from('profiles')
+          .update({ points: (profile.points || 0) })
+          .eq('id', user_id);
+        return NextResponse.json({ error: '记录账单失败: ' + insertError.message }, { status: 500 });
+      }
+
+      console.log('✅ 积分扣除成功');
+
+    } catch (e) {
+      console.error('❌ 积分操作异常:', e);
+      return NextResponse.json({ error: '积分操作异常: ' + (e as Error).message }, { status: 500 });
     }
 
     // 2. 调用第三方图片生成API
+    console.log('🌐 开始调用云雾API...');
     const apiUrl = 'https://api.yunwu.ai/v1/images/generations';
     const requestBody: Record<string, unknown> = {
       model: model || 'gpt-image-2-all',
@@ -105,20 +123,19 @@ export async function POST(request: NextRequest) {
       });
 
       clearTimeout(timeoutId);
+      console.log('📡 云雾API响应状态:', response.status);
+
       const responseText = await response.text();
 
       if (!response.ok) {
-        console.error('❌ API请求失败:', response.status, responseText);
-        
+        console.error('❌ 云雾API请求失败:', response.status, responseText);
         // 返还积分
         await refundPoints(user_id, COST_PER_IMAGE, 'API请求失败');
-        
         let errorMessage = '生成失败';
         try {
           const errorJson = JSON.parse(responseText);
           errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
         } catch {}
-        
         return NextResponse.json({ error: errorMessage }, { status: response.status });
       }
 
@@ -132,19 +149,19 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
 
-      console.log('✅ 图片生成成功');
+      console.log('✅ 图片生成成功:', urls.length, '张图片');
       return NextResponse.json({ status: 'completed', urls, cost: COST_PER_IMAGE });
 
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
       await refundPoints(user_id, COST_PER_IMAGE, '网络请求失败');
-      return NextResponse.json({ error: '网络请求失败' }, { status: 500 });
+      return NextResponse.json({ error: '网络请求失败: ' + (fetchError as Error).message }, { status: 500 });
     }
 
   } catch (error) {
     console.error('❌ 请求处理失败:', error);
-    return NextResponse.json({ error: '请求解析失败' }, { status: 400 });
+    return NextResponse.json({ error: '请求解析失败: ' + (error as Error).message }, { status: 400 });
   }
 }
 
