@@ -24,7 +24,16 @@ export default function ImageGenerator() {
   const [generationHistory, setGenerationHistory] = useState<GenerationRecord[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('yunwuai_generation_history');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // 将刷新页面时还在生成中的记录标记为失败
+        return parsed.map((record: GenerationRecord) => 
+          record.status === 'generating' 
+            ? { ...record, status: 'failed' as const, error: '刷新页面导致任务中断' }
+            : record
+        );
+      }
+      return [];
     }
     return [];
   });
