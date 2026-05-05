@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
-      const response = await fetch('https://api.yunwu.ai/v1/videos/generations', {
+      const response = await fetch('https://yunwu.ai/v1/video/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -182,7 +182,7 @@ async function handlePollTask(id: string, userId: string) {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(`https://api.yunwu.ai/v1/videos/generations/${id}`, {
+    const response = await fetch(`https://yunwu.ai/v1/video/query/${id}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${process.env.VIDEO_API_KEY}`,
