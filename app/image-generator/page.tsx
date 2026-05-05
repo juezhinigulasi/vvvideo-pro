@@ -406,6 +406,10 @@ export default function ImageGenerator() {
 
         // 刷新积分显示
         loadUserCredits();
+        // 同时刷新 Header 的积分显示
+        if ((window as any).refreshUserCredits) {
+          (window as any).refreshUserCredits();
+        }
       } else {
         console.warn('No images returned in response');
         throw new Error('API 返回的数据格式不正确');
