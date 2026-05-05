@@ -63,7 +63,7 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
         .single();
 
       if (data && !error) {
-        setCredits(data.credits || 0);
+        setCredits(data.points || 0);
         setUserProfile(data);
       }
     } catch (error) {
