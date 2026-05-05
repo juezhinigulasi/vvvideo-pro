@@ -5,89 +5,82 @@ const API_KEY = process.env.VIDEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
 
 export async function POST(request: Request) {
+  const startTime = Date.now();
+
   try {
     const body = await request.json();
     const { prompt, model, input_reference, poll, id, aspect_ratio, duration, user_id } = body;
+
+    console.log('========== 视频生成请求 ==========');
+    console.log('poll:', poll, 'id:', id);
+    console.log('user_id:', user_id);
+    console.log('===================================');
 
     if (!API_KEY) {
       console.error('❌ 环境变量 VIDEO_API_KEY 未配置');
       return NextResponse.json({ error: '服务器配置错误，请联系管理员' }, { status: 500 });
     }
 
+    // 轮询模式 - 查询任务状态
     if (poll && id) {
-      const taskId = id;
-      if (!taskId) {
-        console.error('[轮询] 缺少任务ID');
-        return NextResponse.json({ error: '缺少任务ID' }, { status: 400 });
-      }
-
-      console.log('[轮询] 收到轮询请求，id:', taskId);
-
-      try {
-        const response = await fetch(`https://yunwu.ai/v1/video/query?id=${taskId}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          signal: AbortSignal.timeout(30000),
-        });
-
-        const responseText = await response.text();
-        console.log('[轮询] 响应内容:', responseText);
-
-        if (!response.ok) {
-          console.error('[轮询] HTTP错误:', response.status);
-          return NextResponse.json({ status: 'processing', id: taskId });
-        }
-
-        const result = JSON.parse(responseText);
-        console.log('[轮询] 解析结果:', JSON.stringify(result, null, 2));
-
-        if (result.status === 'completed' || result.status === 'success') {
-          const videoUrl = result.video_url || result.url || result.data?.video_url || result.output?.url || result.result?.video_url;
-          console.log('[轮询] ✅ 任务完成，视频URL:', videoUrl);
-          
-          if (!videoUrl) {
-            console.warn('[轮询] 任务完成但未找到视频URL');
-            return NextResponse.json({ status: 'processing', id: taskId });
-          }
-
-          return NextResponse.json({
-            status: 'completed',
-            id: taskId,
-            video_url: videoUrl,
-            url: videoUrl,
-          });
-        } else if (result.status === 'failed' || result.status === 'error') {
-          console.log('[轮询] 任务失败:', result.error);
-          return NextResponse.json({
-            status: 'failed',
-            id: taskId,
-            error: result.error || result.message || result.error_msg || '视频生成失败',
-          });
-        } else {
-          console.log('[轮询] 任务进行中，状态:', result.status);
-          return NextResponse.json({ status: result.status || 'processing', id: taskId });
-        }
-      } catch (error) {
-        console.error('[轮询] 查询异常:', error);
-        return NextResponse.json({ status: 'processing', id: taskId });
-      }
+      return handlePollTask(id);
     }
 
-    console.log('========== 后端接收到的请求 ==========');
-    console.log('prompt:', prompt);
-    console.log('model:', model);
-    console.log('aspect_ratio:', aspect_ratio);
-    console.log('duration:', duration);
-    console.log('user_id:', user_id);
-    console.log('========================================');
-
+    // 新建任务模式 - 创建视频
     if (!prompt) {
       return NextResponse.json({ error: '参数不完整：prompt 是必填项' }, { status: 400 });
     }
 
+    // 检查用户是否登录
+    if (!user_id) {
+      return NextResponse.json({ error: '用户未登录' }, { status: 401 });
+    }
+
+    // 1. 创建任务记录（pending状态）
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .insert({
+        user_id,
+        type: 'video',
+        status: 'pending',
+        prompt,
+        cost: COST_PER_VIDEO,
+        metadata: { model, aspect_ratio, duration, input_reference },
+      })
+      .select()
+      .single();
+
+    if (taskError || !task) {
+      console.error('❌ 创建任务记录失败:', taskError);
+      return NextResponse.json({ error: '创建任务失败' }, { status: 500 });
+    }
+
+    console.log('✅ 任务记录已创建, task_id:', task.id);
+
+    // 2. 扣减积分（先扣费，如果失败则任务失败）
+    const deductResult = await supabase.rpc('deduct_credits', {
+      user_id,
+      amount: COST_PER_VIDEO,
+    });
+
+    if (!deductResult.data?.success) {
+      console.error('❌ 积分不足:', deductResult.data);
+      await supabase.from('tasks').update({ status: 'failed', error_message: '积分不足' }).eq('id', task.id);
+      return NextResponse.json({ error: '积分不足' }, { status: 400 });
+    }
+
+    console.log('✅ 积分已扣除:', COST_PER_VIDEO);
+
+    // 3. 添加积分消费记录
+    await supabase.from('point_transactions').insert({
+      user_id,
+      type: 'consume',
+      amount: COST_PER_VIDEO,
+      description: '生成视频',
+      metadata: { task_id: task.id, prompt: prompt?.substring(0, 100) },
+    });
+
+    // 4. 调用第三方API创建任务
     const requestBody = {
       model: model || 'grok-video-3-10s',
       prompt: prompt,
@@ -95,10 +88,6 @@ export async function POST(request: Request) {
       size: '720P',
       images: input_reference ? [input_reference.trim()] : [],
     };
-
-    console.log('========== 发送的 JSON 数据 ==========');
-    console.log(JSON.stringify(requestBody, null, 2));
-    console.log('===================================');
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
@@ -115,137 +104,243 @@ export async function POST(request: Request) {
       });
 
       clearTimeout(timeoutId);
-      console.log('响应状态:', response.status, response.statusText);
       const responseText = await response.text();
-      console.log('响应内容:', responseText);
 
       if (!response.ok) {
-        let errorDetail = '未知错误';
-        if (response.status === 404) errorDetail = '404 - 接口地址不存在';
-        else if (response.status === 401) errorDetail = '401 - 认证失败，请检查服务器配置';
-        else if (response.status === 403) errorDetail = '403 - 权限不足';
-        else if (response.status === 500) errorDetail = '500 - 服务器内部错误';
-        else if (response.status === 502) errorDetail = '502 - 网关错误';
-        else if (response.status === 503) errorDetail = '503 - 服务不可用';
-        else {
-          try {
-            const errorJson = JSON.parse(responseText);
-            errorDetail = errorJson.error?.message || errorJson.message || errorJson.error || responseText;
-          } catch {
-            errorDetail = responseText;
-          }
-        }
+        console.error('❌ API请求失败:', response.status, responseText);
 
-        console.error('❌ API 请求失败:', { status: response.status, error: errorDetail });
-        return NextResponse.json({ error: errorDetail }, { status: response.status });
+        // 返还积分
+        await refundCredits(user_id, COST_PER_VIDEO, task.id, 'API请求失败');
+
+        return NextResponse.json({ error: `API请求失败: ${response.status}` }, { status: response.status });
       }
 
       const result = JSON.parse(responseText);
-      console.log('✅ 创建任务成功:', result);
+      const externalTaskId = result.id;
 
-      const taskId = result.id;
-      if (!taskId) {
-        console.error('❌ 响应中没有 id 字段:', result);
-        return NextResponse.json({ error: '未获取到 id，请检查API响应' }, { status: 500 });
+      if (!externalTaskId) {
+        console.error('❌ 响应中没有id:', result);
+        await refundCredits(user_id, COST_PER_VIDEO, task.id, 'API响应无任务ID');
+        return NextResponse.json({ error: '未获取到任务ID' }, { status: 500 });
       }
 
-      const maxRetries = 60;
-      const pollInterval = 5000;
+      // 更新任务状态为processing
+      await supabase.from('tasks').update({ status: 'processing', metadata: { ...task.metadata, external_task_id: externalTaskId } }).eq('id', task.id);
 
-      for (let i = 0; i < maxRetries; i++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      // 5. 轮询等待结果
+      const videoUrl = await pollForResult(externalTaskId, task.id, user_id);
 
-        try {
-          const queryUrl = `https://yunwu.ai/v1/video/query?id=${taskId}`;
-          console.log(`[轮询] 第 ${i + 1} 次查询:`, queryUrl);
+      // 6. 下载并上传到Supabase Storage
+      const permanentUrl = await uploadToStorage(videoUrl, user_id, 'video');
 
-          const statusResponse = await fetch(queryUrl, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${API_KEY}` },
-            signal: AbortSignal.timeout(30000),
-          });
+      // 7. 更新任务状态为success
+      await supabase.from('tasks').update({
+        status: 'success',
+        result_url: permanentUrl,
+      }).eq('id', task.id);
 
-          const statusText = await statusResponse.text();
-          console.log(`[轮询] 第 ${i + 1} 次响应:`, statusText);
+      console.log('✅ 视频生成完成，耗时:', Date.now() - startTime, 'ms');
 
-          if (!statusResponse.ok) {
-            console.log(`[轮询] 查询失败，继续重试`);
-            continue;
-          }
-
-          const statusResult = JSON.parse(statusText);
-
-          if (statusResult.status === 'completed' || statusResult.status === 'success') {
-            console.log('✅ 视频生成成功!');
-            const finalVideoUrl = statusResult.video_url || statusResult.url || statusResult.data?.video_url || statusResult.result?.video_url || statusResult.output_url;
-            console.log('✅ 最终使用的视频URL:', finalVideoUrl);
-
-            // 扣除积分
-            let pointsDeducted = false;
-            if (user_id) {
-              try {
-                const { data, error } = await supabase.rpc('deduct_points', { 
-                  user_id: user_id,
-                  amount: COST_PER_VIDEO 
-                });
-                if (!error && data) {
-                  pointsDeducted = true;
-                  console.log('✅ 积分扣除成功:', COST_PER_VIDEO);
-                  
-                  // 添加积分记录
-                  await supabase.from('point_transactions').insert({
-                    user_id: user_id,
-                    type: 'consume',
-                    amount: COST_PER_VIDEO,
-                    description: '生成视频',
-                    metadata: { prompt: prompt?.substring(0, 100) },
-                  });
-                  console.log('✅ 积分记录已添加');
-                } else {
-                  console.error('❌ 积分扣除失败:', error);
-                }
-              } catch (e) {
-                console.error('❌ 积分扣除异常:', e);
-              }
-            }
-
-            return NextResponse.json({
-              id: taskId,
-              status: 'completed',
-              video_url: finalVideoUrl,
-              cost: pointsDeducted ? COST_PER_VIDEO : 0,
-            });
-          } else if (statusResult.status === 'failed' || statusResult.status === 'error') {
-            console.error('❌ 视频生成失败:', statusResult);
-            return NextResponse.json({
-              id: taskId,
-              status: 'failed',
-              error: statusResult.error || statusResult.message || statusResult.error_msg || '视频生成失败',
-              cost: 0,
-            }, { status: 200 });
-          } else {
-            console.log(`[轮询] 任务进行中，状态: ${statusResult.status}`);
-          }
-        } catch (pollError) {
-          console.error(`[轮询] 第 ${i + 1} 次查询异常:`, pollError);
-        }
-      }
-
-      console.log('[轮询] 超时未获取结果，返回 id 供前端继续查询');
       return NextResponse.json({
-        id: taskId,
-        status: 'processing',
-        message: '任务已提交，正在处理中',
+        id: task.id,
+        status: 'completed',
+        video_url: permanentUrl,
         cost: COST_PER_VIDEO,
       });
 
-    } catch (fetchError: unknown) {
+    } catch (fetchError) {
       clearTimeout(timeoutId);
-      console.error('❌ Fetch 请求失败:', fetchError);
+      console.error('❌ 网络请求失败:', fetchError);
+      await refundCredits(user_id, COST_PER_VIDEO, task.id, '网络请求失败');
       return NextResponse.json({ error: '网络请求失败，请稍后重试' }, { status: 500 });
     }
+
   } catch (error) {
     console.error('❌ 请求处理失败:', error);
     return NextResponse.json({ error: '请求处理失败' }, { status: 500 });
+  }
+}
+
+// 轮询任务状态
+async function handlePollTask(taskId: string) {
+  try {
+    // 从数据库获取外部任务ID
+    const { data: task } = await supabase.from('tasks').select('*').eq('id', taskId).single();
+
+    if (!task) {
+      return NextResponse.json({ error: '任务不存在' }, { status: 404 });
+    }
+
+    const externalTaskId = task.metadata?.external_task_id;
+
+    if (!externalTaskId) {
+      // 任务还在处理中
+      if (task.status === 'pending') {
+        return NextResponse.json({ status: 'pending', id: taskId });
+      }
+      return NextResponse.json({ status: task.status, id: taskId });
+    }
+
+    // 查询外部API状态
+    const response = await fetch(`https://yunwu.ai/v1/video/query?id=${externalTaskId}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${API_KEY}` },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return NextResponse.json({ status: 'processing', id: taskId });
+    }
+
+    const result = JSON.parse(responseText);
+
+    if (result.status === 'completed' || result.status === 'success') {
+      const videoUrl = result.video_url || result.url || result.data?.video_url || result.output?.url || result.result?.video_url;
+
+      if (!videoUrl) {
+        return NextResponse.json({ status: 'processing', id: taskId });
+      }
+
+      // 上传到Supabase Storage
+      const permanentUrl = await uploadToStorage(videoUrl, task.user_id, 'video');
+
+      // 更新任务状态
+      await supabase.from('tasks').update({
+        status: 'success',
+        result_url: permanentUrl,
+      }).eq('id', taskId);
+
+      return NextResponse.json({
+        status: 'completed',
+        id: taskId,
+        video_url: permanentUrl,
+      });
+    } else if (result.status === 'failed' || result.status === 'error') {
+      // 返还积分
+      await refundCredits(task.user_id, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
+
+      return NextResponse.json({
+        status: 'failed',
+        id: taskId,
+        error: result.error || result.message || '视频生成失败',
+      });
+    }
+
+    return NextResponse.json({ status: result.status || 'processing', id: taskId });
+
+  } catch (error) {
+    console.error('❌ 轮询异常:', error);
+    return NextResponse.json({ status: 'processing', id: taskId });
+  }
+}
+
+// 轮询等待结果
+async function pollForResult(externalTaskId: string, taskId: string, userId: string): Promise<string> {
+  const maxRetries = 60;
+  const pollInterval = 5000;
+
+  for (let i = 0; i < maxRetries; i++) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+
+    try {
+      const response = await fetch(`https://yunwu.ai/v1/video/query?id=${externalTaskId}`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${API_KEY}` },
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) continue;
+
+      const result = JSON.parse(await response.text());
+
+      if (result.status === 'completed' || result.status === 'success') {
+        return result.video_url || result.url || result.data?.video_url || result.output?.url || result.result?.video_url;
+      }
+
+      if (result.status === 'failed' || result.status === 'error') {
+        await refundCredits(userId, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
+        throw new Error(result.error || '视频生成失败');
+      }
+
+      console.log(`[轮询] 第 ${i + 1}/${maxRetries} 次，状态:`, result.status);
+
+    } catch (error) {
+      console.error(`[轮询] 第 ${i + 1} 次异常:`, error);
+    }
+  }
+
+  throw new Error('视频生成超时');
+}
+
+// 返还积分
+async function refundCredits(userId: string, amount: number, taskId: string, reason: string) {
+  console.log('🔄 开始返还积分:', amount, '原因:', reason);
+
+  const refundResult = await supabase.rpc('refund_credits', {
+    user_id: userId,
+    amount: amount,
+  });
+
+  if (refundResult.data?.success) {
+    console.log('✅ 积分已返还:', amount);
+
+    await supabase.from('point_transactions').insert({
+      user_id: userId,
+      type: 'refund',
+      amount: amount,
+      description: `生成失败返还: ${reason}`,
+      metadata: { task_id: taskId },
+    });
+
+    await supabase.from('tasks').update({ status: 'failed', error_message: reason }).eq('id', taskId);
+  } else {
+    console.error('❌ 积分返还失败:', refundResult.error);
+  }
+}
+
+// 上传文件到Supabase Storage
+async function uploadToStorage(url: string, userId: string, type: 'image' | 'video'): Promise<string> {
+  try {
+    console.log('📤 开始上传到Supabase Storage:', url);
+
+    // 下载文件
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('❌ 下载文件失败');
+      return url; // 返回原URL
+    }
+
+    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || (type === 'video' ? 'video/mp4' : 'image/png');
+
+    // 生成文件名
+    const timestamp = Date.now();
+    const extension = type === 'video' ? 'mp4' : 'png';
+    const fileName = `${type}s/${userId}/${timestamp}.${extension}`;
+
+    // 上传到Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('generations')
+      .upload(fileName, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) {
+      console.error('❌ 上传到Storage失败:', error);
+      return url; // 返回原URL
+    }
+
+    // 获取公开URL
+    const { data: urlData } = supabase.storage.from('generations').getPublicUrl(fileName);
+
+    console.log('✅ 上传成功，永久URL:', urlData.publicUrl);
+    return urlData.publicUrl;
+
+  } catch (error) {
+    console.error('❌ 上传异常:', error);
+    return url; // 返回原URL
   }
 }

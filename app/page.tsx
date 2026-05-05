@@ -47,24 +47,24 @@ export default function Home() {
     duration: 10,
   });
 
-  const [points, setPoints] = useState(0);
+  const [credits, setCredits] = useState(0);
 
   const pollingIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
   const fileInputRef = useRef<Record<number, HTMLInputElement | null>>({});
 
   useEffect(() => {
-    loadUserPoints();
+    loadUserCredits();
   }, []);
 
-  const loadUserPoints = async () => {
+  const loadUserCredits = async () => {
     try {
       const response = await fetch('/api/get-user-points');
       if (response.ok) {
         const data = await response.json();
-        setPoints(data.points || 0);
+        setCredits(data.credits || 0);
       }
     } catch (error) {
-      console.error('Failed to load user points:', error);
+      console.error('Failed to load user credits:', error);
     }
   };
 
@@ -177,7 +177,7 @@ export default function Home() {
             t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl } : t
           ));
           // 刷新积分显示
-          loadUserPoints();
+          loadUserCredits();
         } else if (pollResult.status === 'failed') {
           clearInterval(pollInterval);
           delete pollingIntervalsRef.current[taskIdNum];
@@ -328,7 +328,7 @@ export default function Home() {
           t.id === taskId ? { ...t, status: 'completed' as TaskStatus, videoUrl: data.video_url, taskId: data.id } : t
         ));
         // 刷新积分显示
-        loadUserPoints();
+        loadUserCredits();
       } else if (data.status === 'failed') {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'failed' as TaskStatus } : t
@@ -368,7 +368,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#1A1C1E]">
-      <Header points={points} costPerVideo={COST_PER_VIDEO} />
+      <Header credits={credits} costPerVideo={COST_PER_VIDEO} />
 
       <div className="max-w-7xl mx-auto px-6 mb-8">
         <div className="bg-[#222428] backdrop-blur-md rounded-2xl border border-white/10 p-6" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}>

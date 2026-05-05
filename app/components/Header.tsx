@@ -5,17 +5,17 @@ import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 
 interface HeaderProps {
-  points?: number;
+  credits?: number;
   costPerVideo?: number;
 }
 
-export default function Header({ points: externalPoints, costPerVideo }: HeaderProps) {
+export default function Header({ credits: externalCredits, costPerVideo }: HeaderProps) {
   const [showLogin, setShowLogin] = useState(false);
   const [showCardRedeem, setShowCardRedeem] = useState(false);
   const [showPersonalCenter, setShowPersonalCenter] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [cardCode, setCardCode] = useState('');
-  const [points, setPoints] = useState(externalPoints || 0);
+  const [credits, setCredits] = useState(externalCredits || 0);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -41,7 +41,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
         fetchUserPoints(session.user.id);
       } else {
         setUser(null);
-        setPoints(0);
+        setCredits(0);
       }
     });
 
@@ -49,10 +49,10 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
   }, []);
 
   useEffect(() => {
-    if (externalPoints !== undefined) {
-      setPoints(externalPoints);
+    if (externalCredits !== undefined) {
+      setCredits(externalCredits);
     }
-  }, [externalPoints]);
+  }, [externalCredits]);
 
   const fetchUserPoints = async (userId: string) => {
     try {
@@ -63,7 +63,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
         .single();
 
       if (data && !error) {
-        setPoints(data.points);
+        setCredits(data.credits || 0);
         setUserProfile(data);
       }
     } catch (error) {
@@ -192,7 +192,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
-    setPoints(0);
+    setCredits(0);
     alert('已退出登录');
   };
 
@@ -210,13 +210,13 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
       if (error) {
         alert('兑换失败: ' + error.message);
       } else if (data && data.success) {
-        setRechargeAmount(data.points);
+        setRechargeAmount(data.credits || data.points || 0);
         setShowRechargeSuccess(true);
         setTimeout(() => {
           setShowRechargeSuccess(false);
         }, 3000);
-        const newBalance = points + data.points;
-        await addTransaction(user.id, 'redeem', `卡密充值：${code}`, data.points, newBalance);
+        const newBalance = credits + (data.credits || data.points || 0);
+        await addTransaction(user.id, 'redeem', `卡密充值：${code}`, data.credits || data.points || 0, newBalance);
         setShowCardRedeem(false);
         setCardCode('');
         fetchUserPoints(user.id);
@@ -243,7 +243,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
       }
 
       if (data && data.success) {
-        const newBalance = points - amount;
+        const newBalance = credits - amount;
         await addTransaction(user.id, 'generate_image', description, -amount, newBalance);
         fetchUserPoints(user.id);
         return true;
@@ -284,7 +284,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
             <svg className="w-5 h-5 text-[#D4AF37]" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.31-8.86c-1.77-.45-2.34-.94-2.34-1.67 0-.84.79-1.43 2.1-1.43 1.38 0 1.9.66 1.94 1.64h1.71c-.05-1.34-.87-2.57-2.49-2.97V5H10.9v1.69c-1.51.32-2.72 1.3-2.72 2.81 0 1.79 1.49 2.69 3.66 3.21 1.95.46 2.34 1.15 2.34 1.87 0 .53-.39 1.39-2.1 1.39-1.6 0-2.23-.72-2.32-1.64H10.4c.1 1.39.92 2.56 2.59 2.97V19h2.34v-1.67c1.52-.29 2.72-1.16 2.73-2.77-.01-2.2-1.9-2.96-3.75-3.42z"/>
             </svg>
-            <span className="text-[#D4AF37] font-bold">{points} 积分</span>
+            <span className="text-[#D4AF37] font-bold">{credits} 积分</span>
           </div>
 
           <div className="relative group">
@@ -502,7 +502,7 @@ export default function Header({ points: externalPoints, costPerVideo }: HeaderP
 
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="bg-[#1A1C1E] rounded-xl p-4 border border-white/10">
-                    <p className="text-[#D4AF37] text-xl font-bold">{points}</p>
+                    <p className="text-[#D4AF37] text-xl font-bold">{credits}</p>
                     <p className="text-[#888] text-xs mt-1">当前积分</p>
                   </div>
                   <div className="bg-[#1A1C1E] rounded-xl p-4 border border-white/10">

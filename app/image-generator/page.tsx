@@ -33,21 +33,21 @@ export default function ImageGenerator() {
   const [recordToDelete, setRecordToDelete] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
-  const [points, setPoints] = useState(0);
+  const [credits, setCredits] = useState(0);
 
   useEffect(() => {
-    loadUserPoints();
+    loadUserCredits();
   }, []);
 
-  const loadUserPoints = async () => {
+  const loadUserCredits = async () => {
     try {
       const response = await fetch('/api/get-user-points');
       if (response.ok) {
         const data = await response.json();
-        setPoints(data.points || 0);
+        setCredits(data.credits || 0);
       }
     } catch (error) {
-      console.error('Failed to load user points:', error);
+      console.error('Failed to load user credits:', error);
     }
   };
 
@@ -242,15 +242,15 @@ export default function ImageGenerator() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('points')
+      .select('credits')
       .eq('id', user.id)
       .single();
 
     console.log('profile:', profile);
-    console.log('points:', profile?.points || 0);
-    if (!profile || profile.points < COST_PER_IMAGE) {
+    console.log('credits:', profile?.credits || 0);
+    if (!profile || profile.credits < COST_PER_IMAGE) {
       console.log('❌ 积分不足');
-      alert(`积分不足！当前积分: ${profile?.points || 0}，生成图片需要 ${COST_PER_IMAGE} 积分`);
+      alert(`积分不足！当前积分: ${profile?.credits || 0}，生成图片需要 ${COST_PER_IMAGE} 积分`);
       return;
     }
     
@@ -405,7 +405,7 @@ export default function ImageGenerator() {
         });
 
         // 刷新积分显示
-        loadUserPoints();
+        loadUserCredits();
       } else {
         console.warn('No images returned in response');
         throw new Error('API 返回的数据格式不正确');
@@ -439,7 +439,7 @@ export default function ImageGenerator() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
-      <ImageHeader points={points} costPerImage={2} />
+      <ImageHeader credits={credits} costPerImage={2} />
 
       <div className="max-w-7xl mx-auto px-6 mb-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

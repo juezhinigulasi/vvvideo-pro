@@ -10,35 +10,70 @@ export async function POST(request: NextRequest) {
   try {
     const { prompt, model, size, n = 1, image, user_id } = await request.json();
 
-    console.log('========== Image Generation Request Started ==========');
-    console.log('Timestamp:', new Date().toISOString());
-    console.log('Request body:', {
-      hasPrompt: !!prompt,
-      promptLength: prompt?.length || 0,
-      model,
-      size,
-      n,
-      hasImage: !!image,
-      imageCount: image?.length || 0,
-      user_id,
-    });
+    console.log('========== 图片生成请求 ==========');
+    console.log('user_id:', user_id);
+    console.log('prompt:', prompt?.substring(0, 50));
+    console.log('mode:', image ? 'image-to-image' : 'text-to-image');
+    console.log('===================================');
 
     if (!API_KEY) {
-      console.error('ERROR: 环境变量 IMAGE_API_KEY 未配置');
-      return NextResponse.json(
-        { error: '服务器配置错误，请联系管理员' },
-        { status: 500 }
-      );
+      console.error('❌ 环境变量 IMAGE_API_KEY 未配置');
+      return NextResponse.json({ error: '服务器配置错误，请联系管理员' }, { status: 500 });
     }
 
     if (!prompt) {
-      console.error('ERROR: Prompt is required');
-      return NextResponse.json(
-        { error: '参数不完整：prompt 是必填项' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: '参数不完整：prompt 是必填项' }, { status: 400 });
     }
 
+    if (!user_id) {
+      return NextResponse.json({ error: '用户未登录' }, { status: 401 });
+    }
+
+    // 1. 创建任务记录
+    const { data: task, error: taskError } = await supabase
+      .from('tasks')
+      .insert({
+        user_id,
+        type: 'image',
+        status: 'pending',
+        prompt,
+        cost: COST_PER_IMAGE,
+        metadata: { model, size, n, hasImage: !!image },
+      })
+      .select()
+      .single();
+
+    if (taskError || !task) {
+      console.error('❌ 创建任务记录失败:', taskError);
+      return NextResponse.json({ error: '创建任务失败' }, { status: 500 });
+    }
+
+    console.log('✅ 任务记录已创建, task_id:', task.id);
+
+    // 2. 扣减积分
+    const deductResult = await supabase.rpc('deduct_credits', {
+      user_id,
+      amount: COST_PER_IMAGE,
+    });
+
+    if (!deductResult.data?.success) {
+      console.error('❌ 积分不足:', deductResult.data);
+      await supabase.from('tasks').update({ status: 'failed', error_message: '积分不足' }).eq('id', task.id);
+      return NextResponse.json({ error: '积分不足' }, { status: 400 });
+    }
+
+    console.log('✅ 积分已扣除:', COST_PER_IMAGE);
+
+    // 3. 添加积分消费记录
+    await supabase.from('point_transactions').insert({
+      user_id,
+      type: 'consume',
+      amount: COST_PER_IMAGE,
+      description: '生成图片',
+      metadata: { task_id: task.id, prompt: prompt?.substring(0, 100) },
+    });
+
+    // 4. 调用第三方API
     const apiUrl = 'https://api.yunwu.ai/v1/images/generations';
 
     const requestBody: Record<string, unknown> = {
@@ -53,15 +88,6 @@ export async function POST(request: NextRequest) {
       requestBody.image = image;
       requestBody.mode = 'image-to-image';
     }
-
-    console.log('========== Sending Request to YunWu API ==========');
-    console.log('URL:', apiUrl);
-    console.log('Headers:', {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`,
-    });
-    console.log('Body:', JSON.stringify(requestBody, null, 2));
-    console.log('====================================================');
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 120000);
@@ -78,94 +104,131 @@ export async function POST(request: NextRequest) {
       });
 
       clearTimeout(timeoutId);
-      const responseTime = Date.now() - startTime;
-
-      console.log('========== Response Received ==========');
-      console.log('Status:', response.status);
-      console.log('Response Time:', `${responseTime}ms`);
-
       const responseText = await response.text();
-      console.log('Raw Response:', responseText);
 
       if (!response.ok) {
-        let errorMessage = `HTTP Error: ${response.status}`;
+        console.error('❌ API请求失败:', response.status, responseText);
+
+        let errorMessage = 'API请求失败';
         try {
           const errorJson = JSON.parse(responseText);
-          errorMessage = errorJson.error?.message || errorJson.message || errorJson.error || responseText;
-        } catch {
-          errorMessage = responseText || `HTTP Error: ${response.status}`;
-        }
+          errorMessage = errorJson.error?.message || errorJson.message || errorJson.error || errorMessage;
+        } catch {}
 
-        console.error('ERROR:', errorMessage);
-        return NextResponse.json(
-          { error: errorMessage, cost: 0 },
-          { status: response.status }
-        );
+        await refundCredits(user_id, COST_PER_IMAGE, task.id, errorMessage);
+
+        return NextResponse.json({ error: errorMessage }, { status: response.status });
       }
 
       const result = JSON.parse(responseText);
-      console.log('SUCCESS:', JSON.stringify(result, null, 2));
-
       const images = result.data || result.images || [];
       const urls = images.map((img: { url: string }) => img.url).filter(Boolean);
 
       if (urls.length === 0) {
-        console.error('ERROR: No images returned');
-        return NextResponse.json(
-          { error: '未生成任何图片', cost: 0 },
-          { status: 500 }
-        );
+        console.error('❌ 未生成任何图片');
+        await refundCredits(user_id, COST_PER_IMAGE, task.id, '未生成任何图片');
+        return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
 
-      // 扣除积分
-      let pointsDeducted = false;
-      if (user_id) {
-        try {
-          const { data, error } = await supabase.rpc('deduct_points', { 
-            user_id: user_id,
-            amount: COST_PER_IMAGE 
-          });
-          if (!error && data) {
-            pointsDeducted = true;
-            console.log('✅ 积分扣除成功:', COST_PER_IMAGE);
-            
-            // 添加积分记录
-            await supabase.from('point_transactions').insert({
-              user_id: user_id,
-              type: 'consume',
-              amount: COST_PER_IMAGE,
-              description: '生成图片',
-              metadata: { prompt: prompt?.substring(0, 100) },
-            });
-            console.log('✅ 积分记录已添加');
-          } else {
-            console.error('❌ 积分扣除失败:', error);
-          }
-        } catch (e) {
-          console.error('❌ 积分扣除异常:', e);
-        }
+      console.log('✅ 图片生成成功，数量:', urls.length);
+
+      // 5. 上传到Supabase Storage获取永久URL
+      const permanentUrls: string[] = [];
+      for (const url of urls) {
+        const permanentUrl = await uploadToStorage(url, user_id, 'image');
+        permanentUrls.push(permanentUrl);
       }
+
+      // 6. 更新任务状态
+      await supabase.from('tasks').update({
+        status: 'success',
+        result_url: permanentUrls.join(','),
+      }).eq('id', task.id);
+
+      console.log('✅ 图片生成完成，耗时:', Date.now() - startTime, 'ms');
 
       return NextResponse.json({
         status: 'completed',
-        urls: urls,
-        cost: pointsDeducted ? COST_PER_IMAGE : 0,
+        urls: permanentUrls,
+        cost: COST_PER_IMAGE,
       });
 
     } catch (fetchError) {
       clearTimeout(timeoutId);
-      console.error('FETCH ERROR:', fetchError);
-      return NextResponse.json(
-        { error: '网络请求失败，请稍后重试', cost: 0 },
-        { status: 500 }
-      );
+      console.error('❌ 网络请求失败:', fetchError);
+      await refundCredits(user_id, COST_PER_IMAGE, task.id, '网络请求失败');
+      return NextResponse.json({ error: '网络请求失败，请稍后重试' }, { status: 500 });
     }
 
   } catch (error) {
-    console.error('REQUEST PARSE ERROR:', error);
-    return NextResponse.json(
-      { error: '请求解析失败', cost: 0 },
-      { status: 400 }
-    );
+    console.error('❌ 请求处理失败:', error);
+    return NextResponse.json({ error: '请求解析失败' }, { status: 400 });
+  }
+}
+
+// 返还积分
+async function refundCredits(userId: string, amount: number, taskId: string, reason: string) {
+  console.log('🔄 开始返还积分:', amount, '原因:', reason);
+
+  const refundResult = await supabase.rpc('refund_credits', {
+    user_id: userId,
+    amount: amount,
+  });
+
+  if (refundResult.data?.success) {
+    console.log('✅ 积分已返还:', amount);
+
+    await supabase.from('point_transactions').insert({
+      user_id: userId,
+      type: 'refund',
+      amount: amount,
+      description: `生成失败返还: ${reason}`,
+      metadata: { task_id: taskId },
+    });
+
+    await supabase.from('tasks').update({ status: 'failed', error_message: reason }).eq('id', taskId);
+  } else {
+    console.error('❌ 积分返还失败:', refundResult.error);
+  }
+}
+
+// 上传文件到Supabase Storage
+async function uploadToStorage(url: string, userId: string, type: 'image' | 'video'): Promise<string> {
+  try {
+    console.log('📤 开始上传到Supabase Storage:', url);
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.error('❌ 下载文件失败');
+      return url;
+    }
+
+    const buffer = await response.arrayBuffer();
+    const contentType = response.headers.get('content-type') || 'image/png';
+
+    const timestamp = Date.now();
+    const extension = type === 'video' ? 'mp4' : 'png';
+    const fileName = `${type}s/${userId}/${timestamp}.${extension}`;
+
+    const { data, error } = await supabase.storage
+      .from('generations')
+      .upload(fileName, buffer, {
+        contentType,
+        upsert: true,
+      });
+
+    if (error) {
+      console.error('❌ 上传到Storage失败:', error);
+      return url;
+    }
+
+    const { data: urlData } = supabase.storage.from('generations').getPublicUrl(fileName);
+
+    console.log('✅ 上传成功，永久URL:', urlData.publicUrl);
+    return urlData.publicUrl;
+
+  } catch (error) {
+    console.error('❌ 上传异常:', error);
+    return url;
   }
 }
