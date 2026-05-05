@@ -182,21 +182,30 @@ async function handlePollTask(id: string, userId: string) {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const response = await fetch(`https://yunwu.ai/v1/video/query/${id}`, {
-      method: 'GET',
+    // 尝试使用 POST 请求轮询（有些API需要POST）
+    const response = await fetch(`https://yunwu.ai/v1/video/query`, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.VIDEO_API_KEY}`,
       },
+      body: JSON.stringify({ task_id: id }),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
     const responseText = await response.text();
-    console.log('📥 轮询响应:', responseText.substring(0, 200) + '...');
+    console.log('📥 轮询响应状态:', response.status);
+    console.log('📥 轮询响应内容:', responseText.substring(0, 300) + '...');
 
     if (!response.ok) {
-      console.error('❌ 轮询任务状态失败:', response.status);
-      return NextResponse.json({ error: '查询任务状态失败' }, { status: 500 });
+      console.error('❌ 轮询任务状态失败:', response.status, responseText);
+      let errorMessage = '查询任务状态失败';
+      try {
+        const errorJson = JSON.parse(responseText);
+        errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
+      } catch {}
+      return NextResponse.json({ error: errorMessage }, { status: response.status });
     }
 
     const result = JSON.parse(responseText);
@@ -205,7 +214,7 @@ async function handlePollTask(id: string, userId: string) {
   } catch (fetchError) {
     clearTimeout(timeoutId);
     console.error('❌ 轮询请求失败:', fetchError);
-    return NextResponse.json({ error: '轮询请求失败' }, { status: 500 });
+    return NextResponse.json({ error: '轮询请求失败: ' + (fetchError as Error).message }, { status: 500 });
   }
 }
 
