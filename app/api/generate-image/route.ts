@@ -114,13 +114,12 @@ export async function POST(request: NextRequest) {
 
     // 2. 调用第三方图片生成API
     console.log('🌐 开始调用云雾API...');
-    const apiUrl = 'https://api.yunwu.ai/v1/images/generations';
+    const apiUrl = 'https://yunwu.ai/v1/images/generations';
     const requestBody: Record<string, unknown> = {
       model: model || 'gpt-image-2-all',
       prompt: prompt,
       size: size || '1024x1024',
       n: parseInt(String(n)) || 1, // 确保是数字类型
-      response_format: 'url',
     };
 
     if (image && image.length > 0) {
@@ -136,6 +135,7 @@ export async function POST(request: NextRequest) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           'Authorization': `Bearer ${API_KEY}`,
         },
         body: JSON.stringify(requestBody),
