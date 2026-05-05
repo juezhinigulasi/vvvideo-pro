@@ -77,8 +77,10 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
     }
   }, [user, fetchUserPoints]);
 
-  // 暴露 refreshCredits 函数供外部调用
-  (window as any).refreshUserCredits = refreshCredits;
+  // 暴露 refreshCredits 函数供外部调用（只在客户端执行）
+  useEffect(() => {
+    (window as any).refreshUserCredits = refreshCredits;
+  }, [refreshCredits]);
 
   const fetchTransactions = async (userId: string) => {
     try {
