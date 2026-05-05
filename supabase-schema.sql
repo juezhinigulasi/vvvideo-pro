@@ -1,5 +1,5 @@
 -- ===========================================
--- Supabase 数据库建表 SQL
+-- Supabase 数据库建表 SQL (安全更新版)
 -- 在 Supabase 后台 -> SQL Editor 中运行此文件
 -- ===========================================
 
@@ -13,24 +13,61 @@ CREATE TABLE IF NOT EXISTS profiles (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 添加索引
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 
--- 启用行级安全策略
+-- 启用行级安全策略（如果还没启用）
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
--- 策略：用户只能查看和编辑自己的资料
-CREATE POLICY "Users can view own profile" 
-  ON profiles FOR SELECT 
+-- 策略（使用 OR REPLACE 避免重复）
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
+CREATE POLICY "Users can view own profile"
+  ON profiles FOR SELECT
   USING (auth.uid() = id);
 
-CREATE POLICY "Users can update own profile" 
-  ON profiles FOR UPDATE 
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE
   USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Anyone can view profiles" ON profiles;
+CREATE POLICY "Anyone can view profiles"
+  ON profiles FOR SELECT
+  USING (true);
 
 -- ===========================================
 
--- 2. 创建 gift_cards 表 - 卡密表
+-- 2. 创建 billing_history 表 - 账单记录表
+CREATE TABLE IF NOT EXISTS billing_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('image_gen', 'video_gen', 'recharge', 'refund', 'redeem')),
+  amount INTEGER NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 索引
+CREATE INDEX IF NOT EXISTS idx_billing_history_user_id ON billing_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_billing_history_created_at ON billing_history(created_at DESC);
+
+-- 启用行级安全策略
+ALTER TABLE billing_history ENABLE ROW LEVEL SECURITY;
+
+-- 策略
+DROP POLICY IF EXISTS "Users can view own billing history" ON billing_history;
+CREATE POLICY "Users can view own billing history"
+  ON billing_history FOR SELECT
+  USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own billing history" ON billing_history;
+CREATE POLICY "Users can insert own billing history"
+  ON billing_history FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- ===========================================
+
+-- 3. 创建 gift_cards 表 - 卡密表
 CREATE TABLE IF NOT EXISTS gift_cards (
   id SERIAL PRIMARY KEY,
   code TEXT UNIQUE NOT NULL,
@@ -38,130 +75,157 @@ CREATE TABLE IF NOT EXISTS gift_cards (
   is_used BOOLEAN DEFAULT FALSE,
   used_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   used_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 添加索引
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_gift_cards_code ON gift_cards(code);
 CREATE INDEX IF NOT EXISTS idx_gift_cards_is_used ON gift_cards(is_used);
 
 -- 启用行级安全策略
 ALTER TABLE gift_cards ENABLE ROW LEVEL SECURITY;
 
--- 策略：只有管理员可以查看和创建卡密（这里简化为所有认证用户都可以读取）
-CREATE POLICY "Authenticated users can view gift cards" 
-  ON gift_cards FOR SELECT 
-  USING (auth.role() = 'authenticated');
+-- 策略
+DROP POLICY IF EXISTS "Anyone can view gift cards" ON gift_cards;
+CREATE POLICY "Anyone can view gift cards"
+  ON gift_cards FOR SELECT
+  USING (true);
 
 -- ===========================================
 
--- 3. 创建兑换卡密的 RPC 函数
+-- 4. 兑换卡密的 RPC 函数（使用 OR REPLACE）
 CREATE OR REPLACE FUNCTION redeem_gift_card(card_code TEXT)
 RETURNS JSON
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   card_record gift_cards%ROWTYPE;
-  result JSON;
+  current_points INTEGER;
 BEGIN
-  -- 查找卡密
   SELECT * INTO card_record FROM gift_cards WHERE code = card_code;
   
-  -- 检查卡密是否存在
   IF card_record IS NULL THEN
     RETURN json_build_object('success', false, 'message', '卡密不存在');
   END IF;
   
-  -- 检查卡密是否已使用
   IF card_record.is_used THEN
     RETURN json_build_object('success', false, 'message', '卡密已使用');
   END IF;
   
-  -- 更新卡密状态
-  UPDATE gift_cards 
-  SET is_used = true, used_by = auth.uid(), used_at = NOW()
-  WHERE id = card_record.id;
+  SELECT points INTO current_points FROM profiles WHERE id = auth.uid();
   
-  -- 增加用户积分
-  UPDATE profiles 
-  SET points = points + card_record.points, updated_at = NOW()
-  WHERE id = auth.uid();
-  
-  -- 如果用户不存在则创建新用户
-  IF NOT FOUND THEN
-    INSERT INTO profiles(id, points, created_at, updated_at)
-    VALUES (auth.uid(), card_record.points, NOW(), NOW());
+  IF current_points IS NULL THEN
+    INSERT INTO profiles (id, points) VALUES (auth.uid(), 0);
+    current_points := 0;
   END IF;
   
-  -- 返回结果
-  RETURN json_build_object(
-    'success', true, 
-    'message', '兑换成功', 
-    'points', card_record.points
-  );
+  UPDATE gift_cards SET is_used = true, used_by = auth.uid(), used_at = NOW() WHERE id = card_record.id;
+  UPDATE profiles SET points = points + card_record.points, updated_at = NOW() WHERE id = auth.uid();
+  INSERT INTO billing_history (user_id, type, amount, description) VALUES (auth.uid(), 'redeem', card_record.points, '卡密充值: ' || card_code);
   
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN json_build_object('success', false, 'message', SQLERRM);
-END $$;
+  RETURN json_build_object('success', true, 'message', '兑换成功', 'points', card_record.points, 'new_balance', current_points + card_record.points);
+END;
+$$;
 
 -- ===========================================
 
--- 4. 创建扣积分的 RPC 函数
-CREATE OR REPLACE FUNCTION deduct_points(amount INTEGER)
+-- 5. 扣除积分的 RPC 函数（使用 OR REPLACE）
+CREATE OR REPLACE FUNCTION deduct_points(deduct_amount INTEGER, description TEXT)
 RETURNS JSON
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   current_points INTEGER;
-  result JSON;
 BEGIN
-  -- 获取当前积分
   SELECT points INTO current_points FROM profiles WHERE id = auth.uid();
   
-  -- 检查用户是否存在
-  IF current_points IS NULL THEN
-    RETURN json_build_object('success', false, 'message', '用户不存在');
+  IF current_points IS NULL OR current_points < deduct_amount THEN
+    RETURN json_build_object('success', false, 'message', '积分不足', 'current_points', COALESCE(current_points, 0));
   END IF;
   
-  -- 检查积分是否足够
-  IF current_points < amount THEN
-    RETURN json_build_object('success', false, 'message', '积分不足');
-  END IF;
+  UPDATE profiles SET points = points - deduct_amount, updated_at = NOW() WHERE id = auth.uid();
+  INSERT INTO billing_history (user_id, type, amount, description) VALUES (auth.uid(), 'image_gen', -deduct_amount, description);
   
-  -- 扣除积分
-  UPDATE profiles 
-  SET points = points - amount, updated_at = NOW()
-  WHERE id = auth.uid();
-  
-  -- 返回结果
-  RETURN json_build_object(
-    'success', true, 
-    'message', '扣费成功', 
-    'remaining_points', current_points - amount
-  );
-  
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN json_build_object('success', false, 'message', SQLERRM);
-END $$;
+  RETURN json_build_object('success', true, 'message', '扣费成功', 'deducted', deduct_amount, 'new_balance', current_points - deduct_amount);
+END;
+$$;
 
 -- ===========================================
 
--- 5. 创建示例卡密（用于测试，可删除）
+-- 6. 获取用户积分的函数（使用 OR REPLACE）
+CREATE OR REPLACE FUNCTION get_user_points()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  user_points INTEGER;
+BEGIN
+  SELECT points INTO user_points FROM profiles WHERE id = auth.uid();
+  
+  IF user_points IS NULL THEN
+    RETURN json_build_object('success', false, 'message', '用户不存在', 'points', 0);
+  END IF;
+  
+  RETURN json_build_object('success', true, 'points', user_points);
+END;
+$$;
+
+-- ===========================================
+
+-- 7. 创建触发器：用户注册时自动创建 profile
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO profiles (id, email, username, points)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)),
+    0
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 先删除旧触发器再创建
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- ===========================================
+
+-- 8. 创建触发器：自动更新 updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 先删除旧触发器再创建
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
+CREATE TRIGGER update_profiles_updated_at
+BEFORE UPDATE ON profiles
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ===========================================
+
+-- 插入测试卡密（已存在则跳过）
 INSERT INTO gift_cards (code, points) VALUES
-('TEST-CARD-1000', 1000),
-('TEST-CARD-5000', 5000),
-('TEST-CARD-10000', 10000)
+  ('VIP100', 100),
+  ('VIP50', 50),
+  ('VIP20', 20),
+  ('TEST10', 10)
 ON CONFLICT (code) DO NOTHING;
 
 -- ===========================================
--- 使用说明：
--- 1. 登录 Supabase 后台
--- 2. 进入 SQL Editor
--- 3. 新建查询，复制粘贴此文件内容
--- 4. 点击 "Run" 执行
+-- 执行完成！
 -- ===========================================

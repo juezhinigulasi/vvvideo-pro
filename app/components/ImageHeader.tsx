@@ -63,7 +63,7 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
         .single();
 
       if (data && !error) {
-        setCredits(data.credits || 0);
+        setCredits(data.points || 0);
         setUserProfile(data);
       }
     } catch (error) {
@@ -74,7 +74,7 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
   const fetchTransactions = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('transactions')
+        .from('billing_history')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -83,26 +83,12 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
       if (data && !error) {
         setTransactions(data);
         const recharge = data
-          .filter((tx: any) => tx.type === 'redeem')
-          .reduce((sum: number, tx: any) => sum + tx.points_change, 0);
+          .filter((tx: any) => tx.type === 'recharge' || tx.type === 'redeem')
+          .reduce((sum: number, tx: any) => sum + tx.amount, 0);
         setTotalRecharge(recharge);
       }
     } catch (error) {
       console.error('获取账单失败:', error);
-    }
-  };
-
-  const addTransaction = async (userId: string, type: string, description: string, pointsChange: number, balanceAfter: number) => {
-    try {
-      await supabase.from('transactions').insert({
-        user_id: userId,
-        type,
-        description,
-        points_change: pointsChange,
-        balance_after: balanceAfter,
-      });
-    } catch (error) {
-      console.error('写入账单失败:', error);
     }
   };
 
@@ -162,25 +148,16 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
       if (error) {
         alert(error.message);
       } else if (data.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            username: loginUsername,
-            email: loginEmail,
-            credits: 0,
-          });
-
-        if (profileError) {
-          console.error('创建用户资料失败:', profileError);
-        }
-
+        // 数据库触发器会自动创建 profile（0积分）
+        // 这里延迟一下让数据库同步
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         setUser(data.user);
         setShowLogin(false);
         setLoginEmail('');
         setLoginPassword('');
         setLoginUsername('');
-        alert('注册成功！');
+        alert('注册成功！初始积分为 0，请使用卡密充值');
       }
     } catch (error: any) {
       alert(error.message || '注册失败');
@@ -210,16 +187,14 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
       if (error) {
         alert('兑换失败: ' + error.message);
       } else if (data && data.success) {
-        setRechargeAmount(data.credits || data.points || 0);
+        setRechargeAmount(data.points || 0);
         setShowRechargeSuccess(true);
         setTimeout(() => {
           setShowRechargeSuccess(false);
         }, 3000);
-        const newBalance = credits + (data.credits || data.points || 0);
-        await addTransaction(user.id, 'redeem', `卡密充值：${code}`, data.credits || data.points || 0, newBalance);
+        fetchUserPoints(user.id);
         setShowCardRedeem(false);
         setCardCode('');
-        fetchUserPoints(user.id);
       } else {
         alert(data?.message || '卡密无效或已使用');
       }
@@ -227,33 +202,6 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
       alert(error.message || '兑换失败');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const deductPoints = async (amount: number, description: string = '生图') => {
-    if (!user) return false;
-
-    try {
-      const { data, error } = await supabase
-        .rpc('deduct_points', { amount });
-
-      if (error) {
-        console.error('扣费失败:', error);
-        return false;
-      }
-
-      if (data && data.success) {
-        const newBalance = credits - amount;
-        await addTransaction(user.id, 'generate_image', description, -amount, newBalance);
-        fetchUserPoints(user.id);
-        return true;
-      } else {
-        alert(data?.message || '积分不足');
-        return false;
-      }
-    } catch (error) {
-      console.error('扣费失败:', error);
-      return false;
     }
   };
 
@@ -372,7 +320,7 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
                   {isRegisterMode ? '立即注册' : '欢迎登录'}
                 </h2>
                 <p className="text-[#888] text-sm">
-                  {isRegisterMode ? '注册后即可获得积分开始使用' : '请登录后使用完整功能'}
+                  {isRegisterMode ? '注册后即可获得 10 积分' : '请登录后使用完整功能'}
                 </p>
               </div>
               <button onClick={() => setShowLogin(false)} className="text-[#666] hover:text-[#E5E5E5] transition-colors">
@@ -547,8 +495,8 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
                           {new Date(tx.created_at).toLocaleString('zh-CN')}
                         </p>
                       </div>
-                      <div className={`text-right font-bold ${tx.points_change > 0 ? 'text-[#4ADE80]' : 'text-[#EF4444]'}`}>
-                        {tx.points_change > 0 ? '+' : ''}{tx.points_change}
+                      <div className={`text-right font-bold ${tx.amount > 0 ? 'text-[#4ADE80]' : 'text-[#EF4444]'}`}>
+                        {tx.amount > 0 ? '+' : ''}{tx.amount}
                       </div>
                     </div>
                   ))
@@ -592,7 +540,7 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
             </div>
           </div>
 
-          <style jsx>{`
+          <style>{`
             @keyframes coin-fly {
               0% {
                 transform: translate(0, 0) scale(1);
@@ -601,19 +549,6 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
               100% {
                 transform: translate(var(--tx), var(--ty)) scale(0.5);
                 opacity: 0;
-              }
-            }
-            @keyframes bounce-in {
-              0% {
-                transform: scale(0.5);
-                opacity: 0;
-              }
-              50% {
-                transform: scale(1.1);
-              }
-              100% {
-                transform: scale(1);
-                opacity: 1;
               }
             }
             @keyframes shine {
@@ -626,9 +561,6 @@ export default function ImageHeader({ credits: externalCredits, costPerImage }: 
             }
             .animate-coin-fly {
               animation: coin-fly 1s ease-out forwards;
-            }
-            .animate-bounce-in {
-              animation: bounce-in 0.5s ease-out forwards;
             }
             .animate-shine {
               animation: shine 1s ease-in-out infinite;
