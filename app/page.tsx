@@ -406,6 +406,16 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+            <div>
+              <label className="block text-sm text-[#888] mb-2">积分消耗</label>
+              <div className="w-full bg-[#1A1C1E] border border-yellow-500/30 rounded-xl px-5 py-3 flex items-center justify-between">
+                <span className="text-yellow-400">生成视频</span>
+                <span className="text-[#E5E5E5] font-medium">消耗 {COST_PER_VIDEO} 积分</span>
+              </div>
+            </div>
+          </div>
+
           <div className="flex gap-4">
             <button
               onClick={addTask}
