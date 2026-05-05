@@ -54,27 +54,28 @@ export default function Home() {
 
   useEffect(() => {
     loadUserCredits();
+    
     // 刷新页面后，恢复正在处理中的任务的轮询
-    resumePollingForPendingTasks();
+    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'processing');
+    if (pendingTasks.length > 0) {
+      console.log(`🔄 恢复 ${pendingTasks.length} 个任务的轮询...`);
+    }
   }, []);
 
   useEffect(() => {
     // 任务状态变化时保存到 localStorage
     localStorage.setItem('videoTasks', JSON.stringify(tasks));
-  }, [tasks]);
-
-  const resumePollingForPendingTasks = useCallback(async () => {
-    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'processing');
-    if (pendingTasks.length === 0) return;
-
-    console.log(`🔄 恢复 ${pendingTasks.length} 个任务的轮询...`);
     
-    for (const task of pendingTasks) {
-      if (task.taskId) {
-        pollTask(task.taskId, task.id);
+    // 如果有正在处理的任务且有 taskId，启动轮询
+    const pendingTasks = tasks.filter(t => (t.status === 'pending' || t.status === 'processing') && t.taskId);
+    if (pendingTasks.length > 0) {
+      for (const task of pendingTasks) {
+        if (!pollingIntervalsRef.current[task.id]) {
+          pollTask(task.taskId!, task.id);
+        }
       }
     }
-  }, [tasks, pollTask]);
+  }, [tasks]);
 
   const loadUserCredits = async () => {
     try {
