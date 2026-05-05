@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { supabase } from '../lib/supabase';
 
@@ -54,7 +54,7 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
     }
   }, [externalCredits]);
 
-  const fetchUserPoints = async (userId: string) => {
+  const fetchUserPoints = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -69,12 +69,22 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
     } catch (error) {
       console.error('获取积分失败:', error);
     }
-  };
+  }, []);
+
+  const refreshCredits = useCallback(async () => {
+    if (user) {
+      await fetchUserPoints(user.id);
+    }
+  }, [user, fetchUserPoints]);
+
+  // 暴露 refreshCredits 函数供外部调用
+  (window as any).refreshUserCredits = refreshCredits;
 
   const fetchTransactions = async (userId: string) => {
     try {
+      // 使用新的 billing_history 表
       const { data, error } = await supabase
-        .from('point_transactions')
+        .from('billing_history')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
@@ -89,20 +99,6 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
       }
     } catch (error) {
       console.error('获取账单失败:', error);
-    }
-  };
-
-  const addTransaction = async (userId: string, type: string, description: string, pointsChange: number, balanceAfter: number) => {
-    try {
-      await supabase.from('transactions').insert({
-        user_id: userId,
-        type,
-        description,
-        points_change: pointsChange,
-        balance_after: balanceAfter,
-      });
-    } catch (error) {
-      console.error('写入账单失败:', error);
     }
   };
 
@@ -162,19 +158,6 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
       if (error) {
         alert(error.message);
       } else if (data.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            username: loginUsername,
-            email: loginEmail,
-            points: 0,
-          });
-
-        if (profileError) {
-          console.error('创建用户资料失败:', profileError);
-        }
-
         setUser(data.user);
         setShowLogin(false);
         setLoginEmail('');
@@ -215,8 +198,11 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
         setTimeout(() => {
           setShowRechargeSuccess(false);
         }, 3000);
-        const newBalance = credits + (data.credits || data.points || 0);
-        await addTransaction(user.id, 'redeem', `卡密充值：${code}`, data.credits || data.points || 0, newBalance);
+        await supabase.rpc('handle_credit_recharge', {
+          p_user_id: user.id,
+          p_amount: data.credits || data.points || 0,
+          p_description: `卡密充值：${code}`,
+        });
         setShowCardRedeem(false);
         setCardCode('');
         fetchUserPoints(user.id);
@@ -230,37 +216,29 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
     }
   };
 
-  const deductPoints = async (amount: number, description: string = '生图') => {
-    if (!user) return false;
-
-    try {
-      const { data, error } = await supabase
-        .rpc('deduct_points', { amount });
-
-      if (error) {
-        console.error('扣费失败:', error);
-        return false;
-      }
-
-      if (data && data.success) {
-        const newBalance = credits - amount;
-        await addTransaction(user.id, 'generate_image', description, -amount, newBalance);
-        fetchUserPoints(user.id);
-        return true;
-      } else {
-        alert(data?.message || '积分不足');
-        return false;
-      }
-    } catch (error) {
-      console.error('扣费失败:', error);
-      return false;
-    }
-  };
-
   const handleRedeem = () => {
     if (cardCode.trim()) {
       redeemCard(cardCode);
     }
+  };
+
+  // 获取交易类型标签
+  const getTransactionType = (type: string) => {
+    const types: Record<string, string> = {
+      'image_gen': '图片生成',
+      'video_gen': '视频生成',
+      'recharge': '积分充值',
+      'refund': '积分返还',
+    };
+    return types[type] || type;
+  };
+
+  // 获取交易金额样式
+  const getTransactionAmountStyle = (type: string) => {
+    if (type === 'recharge' || type === 'refund') {
+      return 'text-[#4ADE80]';
+    }
+    return 'text-[#EF4444]';
   };
 
   return (
@@ -302,18 +280,14 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
                     <div className="px-4 py-3 text-[#999] text-sm border-b border-white/10">
                       {user.email}
                     </div>
-                    <button
-                      onClick={() => {
-                        setShowPersonalCenter(true);
-                        fetchTransactions(user.id);
-                      }}
-                      className="w-full text-left px-4 py-3 text-[#E5E5E5] hover:bg-[#2A2C2E] rounded-xl flex items-center gap-3 text-sm transition-all duration-200 mt-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                      个人中心
-                    </button>
+                    <Link href="/profile">
+                      <button className="w-full text-left px-4 py-3 text-[#E5E5E5] hover:bg-[#2A2C2E] rounded-xl flex items-center gap-3 text-sm transition-all duration-200 mt-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        个人中心
+                      </button>
+                    </Link>
                     <button
                       onClick={() => setShowCardRedeem(true)}
                       className="w-full text-left px-4 py-3 text-[#E5E5E5] hover:bg-[#2A2C2E] rounded-xl flex items-center gap-3 text-sm transition-all duration-200"
@@ -542,13 +516,13 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
                   transactions.map((tx) => (
                     <div key={tx.id} className="bg-[#1A1C1E] rounded-xl p-4 flex items-center justify-between border border-white/10">
                       <div className="flex-1">
-                        <p className="text-[#E5E5E5] text-sm font-medium">{tx.description}</p>
+                        <p className="text-[#E5E5E5] text-sm font-medium">{getTransactionType(tx.type)}</p>
                         <p className="text-[#666] text-xs mt-1">
-                          {new Date(tx.created_at).toLocaleString('zh-CN')}
+                          {tx.description} · {new Date(tx.created_at).toLocaleString('zh-CN')}
                         </p>
                       </div>
-                      <div className={`text-right font-bold ${tx.type === 'consume' ? 'text-[#EF4444]' : 'text-[#4ADE80]'}`}>
-                        {tx.type === 'consume' ? '-' : '+'}{tx.amount}
+                      <div className={`text-right font-bold ${getTransactionAmountStyle(tx.type)}`}>
+                        {tx.amount > 0 ? '+' : ''}{tx.amount}
                       </div>
                     </div>
                   ))
@@ -592,7 +566,7 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
             </div>
           </div>
 
-          <style jsx>{`
+          <style>{`
             @keyframes coin-fly {
               0% {
                 transform: translate(0, 0) scale(1);

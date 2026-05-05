@@ -50,30 +50,23 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ 任务记录已创建, task_id:', task.id);
 
-    // 2. 扣减积分
-    const deductResult = await supabase.rpc('deduct_credits', {
-      user_id,
-      amount: COST_PER_IMAGE,
+    // 2. 使用新的安全扣费函数（原子性操作，同时扣除积分并插入账单记录）
+    const deductResult = await supabase.rpc('handle_credit_deduction', {
+      p_user_id: user_id,
+      p_type: 'image_gen',
+      p_amount: COST_PER_IMAGE,
+      p_description: '生成 AI 图片',
     });
 
     if (!deductResult.data?.success) {
-      console.error('❌ 积分不足:', deductResult.data);
-      await supabase.from('tasks').update({ status: 'failed', error_message: '积分不足' }).eq('id', task.id);
-      return NextResponse.json({ error: '积分不足' }, { status: 400 });
+      console.error('❌ 扣费失败:', deductResult.data);
+      await supabase.from('tasks').update({ status: 'failed', error_message: deductResult.data?.message || '扣费失败' }).eq('id', task.id);
+      return NextResponse.json({ error: deductResult.data?.message || '扣费失败' }, { status: 400 });
     }
 
     console.log('✅ 积分已扣除:', COST_PER_IMAGE);
 
-    // 3. 添加积分消费记录
-    await supabase.from('point_transactions').insert({
-      user_id,
-      type: 'consume',
-      amount: COST_PER_IMAGE,
-      description: '生成图片',
-      metadata: { task_id: task.id, prompt: prompt?.substring(0, 100) },
-    });
-
-    // 4. 调用第三方API
+    // 3. 调用第三方API
     const apiUrl = 'https://api.yunwu.ai/v1/images/generations';
 
     const requestBody: Record<string, unknown> = {
@@ -115,7 +108,7 @@ export async function POST(request: NextRequest) {
           errorMessage = errorJson.error?.message || errorJson.message || errorJson.error || errorMessage;
         } catch {}
 
-        await refundCredits(user_id, COST_PER_IMAGE, task.id, errorMessage);
+        await handleRefund(user_id, COST_PER_IMAGE, task.id, errorMessage);
 
         return NextResponse.json({ error: errorMessage }, { status: response.status });
       }
@@ -126,20 +119,20 @@ export async function POST(request: NextRequest) {
 
       if (urls.length === 0) {
         console.error('❌ 未生成任何图片');
-        await refundCredits(user_id, COST_PER_IMAGE, task.id, '未生成任何图片');
+        await handleRefund(user_id, COST_PER_IMAGE, task.id, '未生成任何图片');
         return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
 
       console.log('✅ 图片生成成功，数量:', urls.length);
 
-      // 5. 上传到Supabase Storage获取永久URL
+      // 4. 上传到Supabase Storage获取永久URL
       const permanentUrls: string[] = [];
       for (const url of urls) {
         const permanentUrl = await uploadToStorage(url, user_id, 'image');
         permanentUrls.push(permanentUrl);
       }
 
-      // 6. 更新任务状态
+      // 5. 更新任务状态
       await supabase.from('tasks').update({
         status: 'success',
         result_url: permanentUrls.join(','),
@@ -156,7 +149,7 @@ export async function POST(request: NextRequest) {
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
-      await refundCredits(user_id, COST_PER_IMAGE, task.id, '网络请求失败');
+      await handleRefund(user_id, COST_PER_IMAGE, task.id, '网络请求失败');
       return NextResponse.json({ error: '网络请求失败，请稍后重试' }, { status: 500 });
     }
 
@@ -166,26 +159,19 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 返还积分
-async function refundCredits(userId: string, amount: number, taskId: string, reason: string) {
+// 使用新的返还函数
+async function handleRefund(userId: string, amount: number, taskId: string, reason: string) {
   console.log('🔄 开始返还积分:', amount, '原因:', reason);
 
-  const refundResult = await supabase.rpc('refund_credits', {
-    user_id: userId,
-    amount: amount,
+  const refundResult = await supabase.rpc('handle_credit_refund', {
+    p_user_id: userId,
+    p_type: 'image_gen',
+    p_amount: amount,
+    p_description: `生成失败返还: ${reason}`,
   });
 
   if (refundResult.data?.success) {
     console.log('✅ 积分已返还:', amount);
-
-    await supabase.from('point_transactions').insert({
-      user_id: userId,
-      type: 'refund',
-      amount: amount,
-      description: `生成失败返还: ${reason}`,
-      metadata: { task_id: taskId },
-    });
-
     await supabase.from('tasks').update({ status: 'failed', error_message: reason }).eq('id', taskId);
   } else {
     console.error('❌ 积分返还失败:', refundResult.error);

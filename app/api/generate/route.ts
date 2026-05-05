@@ -57,30 +57,23 @@ export async function POST(request: Request) {
 
     console.log('✅ 任务记录已创建, task_id:', task.id);
 
-    // 2. 扣减积分（先扣费，如果失败则任务失败）
-    const deductResult = await supabase.rpc('deduct_credits', {
-      user_id,
-      amount: COST_PER_VIDEO,
+    // 2. 使用新的安全扣费函数（原子性操作，同时扣除积分并插入账单记录）
+    const deductResult = await supabase.rpc('handle_credit_deduction', {
+      p_user_id: user_id,
+      p_type: 'video_gen',
+      p_amount: COST_PER_VIDEO,
+      p_description: '生成 AI 视频',
     });
 
     if (!deductResult.data?.success) {
-      console.error('❌ 积分不足:', deductResult.data);
-      await supabase.from('tasks').update({ status: 'failed', error_message: '积分不足' }).eq('id', task.id);
-      return NextResponse.json({ error: '积分不足' }, { status: 400 });
+      console.error('❌ 扣费失败:', deductResult.data);
+      await supabase.from('tasks').update({ status: 'failed', error_message: deductResult.data?.message || '扣费失败' }).eq('id', task.id);
+      return NextResponse.json({ error: deductResult.data?.message || '扣费失败' }, { status: 400 });
     }
 
     console.log('✅ 积分已扣除:', COST_PER_VIDEO);
 
-    // 3. 添加积分消费记录
-    await supabase.from('point_transactions').insert({
-      user_id,
-      type: 'consume',
-      amount: COST_PER_VIDEO,
-      description: '生成视频',
-      metadata: { task_id: task.id, prompt: prompt?.substring(0, 100) },
-    });
-
-    // 4. 调用第三方API创建任务
+    // 3. 调用第三方API创建任务
     const requestBody = {
       model: model || 'grok-video-3-10s',
       prompt: prompt,
@@ -110,7 +103,7 @@ export async function POST(request: Request) {
         console.error('❌ API请求失败:', response.status, responseText);
 
         // 返还积分
-        await refundCredits(user_id, COST_PER_VIDEO, task.id, 'API请求失败');
+        await handleRefund(user_id, COST_PER_VIDEO, task.id, 'API请求失败');
 
         return NextResponse.json({ error: `API请求失败: ${response.status}` }, { status: response.status });
       }
@@ -120,20 +113,20 @@ export async function POST(request: Request) {
 
       if (!externalTaskId) {
         console.error('❌ 响应中没有id:', result);
-        await refundCredits(user_id, COST_PER_VIDEO, task.id, 'API响应无任务ID');
+        await handleRefund(user_id, COST_PER_VIDEO, task.id, 'API响应无任务ID');
         return NextResponse.json({ error: '未获取到任务ID' }, { status: 500 });
       }
 
       // 更新任务状态为processing
       await supabase.from('tasks').update({ status: 'processing', metadata: { ...task.metadata, external_task_id: externalTaskId } }).eq('id', task.id);
 
-      // 5. 轮询等待结果
+      // 4. 轮询等待结果
       const videoUrl = await pollForResult(externalTaskId, task.id, user_id);
 
-      // 6. 下载并上传到Supabase Storage
+      // 5. 下载并上传到Supabase Storage
       const permanentUrl = await uploadToStorage(videoUrl, user_id, 'video');
 
-      // 7. 更新任务状态为success
+      // 6. 更新任务状态为success
       await supabase.from('tasks').update({
         status: 'success',
         result_url: permanentUrl,
@@ -151,7 +144,7 @@ export async function POST(request: Request) {
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
-      await refundCredits(user_id, COST_PER_VIDEO, task.id, '网络请求失败');
+      await handleRefund(user_id, COST_PER_VIDEO, task.id, '网络请求失败');
       return NextResponse.json({ error: '网络请求失败，请稍后重试' }, { status: 500 });
     }
 
@@ -219,7 +212,7 @@ async function handlePollTask(taskId: string) {
       });
     } else if (result.status === 'failed' || result.status === 'error') {
       // 返还积分
-      await refundCredits(task.user_id, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
+      await handleRefund(task.user_id, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
 
       return NextResponse.json({
         status: 'failed',
@@ -260,7 +253,7 @@ async function pollForResult(externalTaskId: string, taskId: string, userId: str
       }
 
       if (result.status === 'failed' || result.status === 'error') {
-        await refundCredits(userId, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
+        await handleRefund(userId, COST_PER_VIDEO, taskId, result.error || '视频生成失败');
         throw new Error(result.error || '视频生成失败');
       }
 
@@ -274,26 +267,19 @@ async function pollForResult(externalTaskId: string, taskId: string, userId: str
   throw new Error('视频生成超时');
 }
 
-// 返还积分
-async function refundCredits(userId: string, amount: number, taskId: string, reason: string) {
+// 使用新的返还函数
+async function handleRefund(userId: string, amount: number, taskId: string, reason: string) {
   console.log('🔄 开始返还积分:', amount, '原因:', reason);
 
-  const refundResult = await supabase.rpc('refund_credits', {
-    user_id: userId,
-    amount: amount,
+  const refundResult = await supabase.rpc('handle_credit_refund', {
+    p_user_id: userId,
+    p_type: 'video_gen',
+    p_amount: amount,
+    p_description: `生成失败返还: ${reason}`,
   });
 
   if (refundResult.data?.success) {
     console.log('✅ 积分已返还:', amount);
-
-    await supabase.from('point_transactions').insert({
-      user_id: userId,
-      type: 'refund',
-      amount: amount,
-      description: `生成失败返还: ${reason}`,
-      metadata: { task_id: taskId },
-    });
-
     await supabase.from('tasks').update({ status: 'failed', error_message: reason }).eq('id', taskId);
   } else {
     console.error('❌ 积分返还失败:', refundResult.error);
