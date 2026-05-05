@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     console.log('========== 视频生成请求 ==========');
     console.log('poll:', poll, 'id:', id);
     console.log('user_id:', user_id);
-    console.log('===================================');
+    console.log('API_KEY configured:', API_KEY ? 'Yes' : 'No');
 
     if (!API_KEY) {
       console.error('❌ 环境变量 VIDEO_API_KEY 未配置');
@@ -37,9 +37,10 @@ export async function POST(request: Request) {
     }
 
     // 1. 检查并扣除积分
-    let deductSuccess = true;
-    let deductError = '';
-
+    console.log('🔍 开始检查积分...');
+    
+    let originalPoints = 0;
+    
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -47,66 +48,64 @@ export async function POST(request: Request) {
         .eq('id', user_id)
         .single();
 
-      if (profileError || !profile) {
-        deductError = '获取用户信息失败';
-        deductSuccess = false;
-      } else if ((profile.points || 0) < COST_PER_VIDEO) {
-        deductError = `积分不足！当前积分: ${profile.points || 0}`;
-        deductSuccess = false;
-      } else {
-        // 扣减积分
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ points: (profile.points || 0) - COST_PER_VIDEO })
-          .eq('id', user_id);
+      console.log('📊 查询用户信息结果:', { profile, profileError });
 
-        if (updateError) {
-          deductError = '扣减积分失败';
-          deductSuccess = false;
-        } else {
-          // 记录账单
-          await supabase.from('billing_history').insert({
-            user_id,
-            type: 'video_gen',
-            amount: -COST_PER_VIDEO,
-            description: '生成 AI 视频',
-          });
-          console.log('✅ 积分已扣除:', COST_PER_VIDEO);
-        }
+      if (profileError) {
+        console.error('❌ 获取用户信息失败:', profileError.message);
+        return NextResponse.json({ error: '获取用户信息失败: ' + profileError.message }, { status: 400 });
       }
-    } catch (e) {
-      deductError = '积分操作异常';
-      deductSuccess = false;
-    }
 
-    if (!deductSuccess) {
-      console.error('❌ 扣费失败:', deductError);
-      return NextResponse.json({ error: deductError }, { status: 400 });
-    }
+      if (!profile) {
+        console.error('❌ 用户不存在');
+        return NextResponse.json({ error: '用户不存在' }, { status: 400 });
+      }
 
-    // 2. 创建任务记录（pending状态）
-    const { data: task, error: taskError } = await supabase
-      .from('tasks')
-      .insert({
+      originalPoints = profile.points || 0;
+      
+      if (originalPoints < COST_PER_VIDEO) {
+        console.error('❌ 积分不足:', originalPoints);
+        return NextResponse.json({ error: `积分不足！当前积分: ${originalPoints}，需要 ${COST_PER_VIDEO} 积分` }, { status: 400 });
+      }
+
+      // 扣减积分
+      console.log('💰 开始扣减积分:', COST_PER_VIDEO);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ points: originalPoints - COST_PER_VIDEO })
+        .eq('id', user_id);
+
+      if (updateError) {
+        console.error('❌ 扣减积分失败:', updateError.message);
+        return NextResponse.json({ error: '扣减积分失败: ' + updateError.message }, { status: 500 });
+      }
+
+      // 记录账单
+      console.log('📝 记录账单...');
+      const { error: insertError } = await supabase.from('billing_history').insert({
         user_id,
-        type: 'video',
-        status: 'pending',
-        prompt,
-        cost: COST_PER_VIDEO,
-        metadata: { model, aspect_ratio, duration, input_reference },
-      })
-      .select()
-      .single();
+        type: 'video_gen',
+        amount: -COST_PER_VIDEO,
+        description: '生成 AI 视频',
+      });
 
-    if (taskError || !task) {
-      console.error('❌ 创建任务记录失败:', taskError);
-      await refundPoints(user_id, COST_PER_VIDEO, '创建任务失败');
-      return NextResponse.json({ error: '创建任务失败' }, { status: 500 });
+      if (insertError) {
+        console.error('❌ 记录账单失败:', insertError.message);
+        // 返还积分
+        await supabase.from('profiles')
+          .update({ points: originalPoints })
+          .eq('id', user_id);
+        return NextResponse.json({ error: '记录账单失败: ' + insertError.message }, { status: 500 });
+      }
+
+      console.log('✅ 积分扣除成功');
+
+    } catch (e) {
+      console.error('❌ 积分操作异常:', e);
+      return NextResponse.json({ error: '积分操作异常: ' + (e as Error).message }, { status: 500 });
     }
 
-    console.log('✅ 任务记录已创建, task_id:', task.id);
-
-    // 3. 调用第三方API创建任务
+    // 2. 调用第三方API创建任务（简化：直接调用，不创建本地任务记录）
+    console.log('🌐 开始调用视频生成API...');
     const requestBody = {
       model: model || 'grok-video-3-10s',
       prompt: prompt,
@@ -115,11 +114,13 @@ export async function POST(request: Request) {
       images: input_reference ? [input_reference.trim()] : [],
     };
 
+    console.log('📤 请求体:', JSON.stringify(requestBody).substring(0, 100) + '...');
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
-      const response = await fetch('https://yunwu.ai/v1/video/create', {
+      const response = await fetch('https://api.yunwu.ai/v1/videos/generations', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,135 +131,81 @@ export async function POST(request: Request) {
       });
 
       clearTimeout(timeoutId);
+      console.log('📡 视频API响应状态:', response.status);
+
       const responseText = await response.text();
+      console.log('📥 视频API响应内容:', responseText.substring(0, 200) + '...');
 
       if (!response.ok) {
-        console.error('❌ API请求失败:', response.status, responseText);
-        await supabase.from('tasks').update({ status: 'failed', error_message: 'API请求失败' }).eq('id', task.id);
+        console.error('❌ 视频API请求失败:', response.status, responseText);
         await refundPoints(user_id, COST_PER_VIDEO, 'API请求失败');
-
         let errorMessage = '生成失败';
         try {
           const errorJson = JSON.parse(responseText);
           errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
         } catch {}
-
         return NextResponse.json({ error: errorMessage }, { status: response.status });
       }
 
       const result = JSON.parse(responseText);
-      const taskId = result.task_id || result.id;
-
-      if (!taskId) {
-        console.error('❌ API未返回任务ID');
-        await supabase.from('tasks').update({ status: 'failed', error_message: 'API未返回任务ID' }).eq('id', task.id);
-        await refundPoints(user_id, COST_PER_VIDEO, 'API未返回任务ID');
-        return NextResponse.json({ error: 'API未返回任务ID' }, { status: 500 });
+      
+      if (result.status === 'completed' && result.video_url) {
+        console.log('✅ 视频生成成功');
+        return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+      } else if (result.id) {
+        console.log('✅ 视频任务已创建, task_id:', result.id);
+        return NextResponse.json({ status: 'pending', id: result.id });
       }
 
-      // 更新任务记录，保存外部任务ID
-      await supabase.from('tasks').update({ status: 'processing', metadata: { ...task.metadata, external_task_id: taskId } }).eq('id', task.id);
-
-      console.log('✅ 视频任务已创建, 外部ID:', taskId);
-      return NextResponse.json({ task_id: task.id, external_task_id: taskId });
+      console.error('❌ 视频API返回格式错误:', result);
+      await refundPoints(user_id, COST_PER_VIDEO, 'API返回格式错误');
+      return NextResponse.json({ error: '视频生成失败' }, { status: 500 });
 
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
-      await supabase.from('tasks').update({ status: 'failed', error_message: '网络请求失败' }).eq('id', task.id);
       await refundPoints(user_id, COST_PER_VIDEO, '网络请求失败');
-      return NextResponse.json({ error: '网络请求失败' }, { status: 500 });
+      return NextResponse.json({ error: '网络请求失败: ' + (fetchError as Error).message }, { status: 500 });
     }
 
   } catch (error) {
     console.error('❌ 请求处理失败:', error);
-    return NextResponse.json({ error: '请求解析失败' }, { status: 400 });
+    return NextResponse.json({ error: '请求解析失败: ' + (error as Error).message }, { status: 400 });
   }
 }
 
 // 轮询任务状态
-async function handlePollTask(taskId: string, userId: string) {
+async function handlePollTask(id: string, userId: string) {
+  console.log('🔄 轮询任务状态:', id);
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
   try {
-    const { data: task, error: taskError } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('id', taskId)
-      .single();
+    const response = await fetch(`https://api.yunwu.ai/v1/videos/generations/${id}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${process.env.VIDEO_API_KEY}`,
+      },
+      signal: controller.signal,
+    });
 
-    if (taskError || !task) {
-      console.error('❌ 查询任务失败:', taskError);
-      return NextResponse.json({ error: '任务不存在' }, { status: 404 });
+    clearTimeout(timeoutId);
+    const responseText = await response.text();
+    console.log('📥 轮询响应:', responseText.substring(0, 200) + '...');
+
+    if (!response.ok) {
+      console.error('❌ 轮询任务状态失败:', response.status);
+      return NextResponse.json({ error: '查询任务状态失败' }, { status: 500 });
     }
 
-    // 如果任务已完成或失败，直接返回状态
-    if (task.status === 'success' || task.status === 'failed') {
-      return NextResponse.json({
-        status: task.status,
-        url: task.result_url,
-        error: task.error_message,
-      });
-    }
+    const result = JSON.parse(responseText);
+    return NextResponse.json(result);
 
-    // 如果是pending或processing状态，查询外部API
-    const externalTaskId = task.metadata?.external_task_id;
-    if (!externalTaskId) {
-      return NextResponse.json({ status: task.status });
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    try {
-      const response = await fetch(`https://yunwu.ai/v1/video/status/${externalTaskId}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        console.error('❌ 查询任务状态失败:', response.status, responseText);
-        return NextResponse.json({ status: 'error' }, { status: response.status });
-      }
-
-      const result = JSON.parse(responseText);
-      const status = result.status?.toLowerCase() || result.state?.toLowerCase();
-      const videoUrl = result.url || result.video_url;
-
-      // 更新本地任务状态
-      let newStatus = task.status;
-
-      if (status === 'completed' || status === 'success') {
-        newStatus = 'success';
-        await supabase.from('tasks').update({ status: 'success', result_url: videoUrl, updated_at: new Date() }).eq('id', taskId);
-      } else if (status === 'failed' || status === 'error') {
-        newStatus = 'failed';
-        const errorMsg = result.message || result.error || '生成失败';
-        await supabase.from('tasks').update({ status: 'failed', error_message: errorMsg, updated_at: new Date() }).eq('id', taskId);
-        await refundPoints(userId, task.cost || COST_PER_VIDEO, '视频生成失败');
-      } else if (status === 'processing' || status === 'pending') {
-        newStatus = 'processing';
-      }
-
-      return NextResponse.json({
-        status: newStatus,
-        url: newStatus === 'success' ? videoUrl : null,
-        error: newStatus === 'failed' ? (result.message || result.error || '生成失败') : null,
-      });
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      console.error('❌ 轮询请求失败:', fetchError);
-      return NextResponse.json({ status: 'error' }, { status: 500 });
-    }
-
-  } catch (error) {
-    console.error('❌ 轮询处理失败:', error);
-    return NextResponse.json({ error: '轮询失败' }, { status: 400 });
+  } catch (fetchError) {
+    clearTimeout(timeoutId);
+    console.error('❌ 轮询请求失败:', fetchError);
+    return NextResponse.json({ error: '轮询请求失败' }, { status: 500 });
   }
 }
 
