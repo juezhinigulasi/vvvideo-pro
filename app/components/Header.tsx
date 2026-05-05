@@ -56,29 +56,43 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
 
   const fetchUserPoints = useCallback(async (userId: string) => {
     try {
+      console.log(`[Header] 开始获取用户积分，用户ID: ${userId}`);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
 
-      if (data && !error) {
+      if (error) {
+        console.error('[Header] 获取积分出错:', error.message);
+        return;
+      }
+
+      if (data) {
+        console.log(`[Header] 获取积分成功，当前积分: ${data.points || 0}`);
         setCredits(data.points || 0);
         setUserProfile(data);
+      } else {
+        console.log('[Header] 用户数据为空');
       }
     } catch (error) {
-      console.error('获取积分失败:', error);
+      console.error('[Header] 获取积分异常:', error);
     }
   }, []);
 
   const refreshCredits = useCallback(async () => {
+    console.log('[Header] refreshCredits 被调用');
     if (user) {
+      console.log(`[Header] 用户已登录，用户ID: ${user.id}`);
       await fetchUserPoints(user.id);
+    } else {
+      console.log('[Header] 用户未登录，跳过刷新');
     }
   }, [user, fetchUserPoints]);
 
   // 暴露 refreshCredits 函数供外部调用（只在客户端执行）
   useEffect(() => {
+    console.log('[Header] 注册全局 refreshUserCredits 函数');
     (window as any).refreshUserCredits = refreshCredits;
   }, [refreshCredits]);
 

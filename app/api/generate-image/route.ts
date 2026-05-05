@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
+import { supabaseServer } from '@/app/lib/supabase-server';
 
 const API_KEY = process.env.IMAGE_API_KEY || '';
 const COST_PER_IMAGE = 2;
@@ -55,9 +56,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `积分不足！当前积分: ${profile.points || 0}，需要 ${COST_PER_IMAGE} 积分` }, { status: 400 });
       }
 
-      // 扣减积分
+      // 扣减积分（使用服务端密钥绕过 RLS）
       console.log('💰 开始扣减积分:', COST_PER_IMAGE);
-      const { error: updateError } = await supabase
+      console.log('💰 用户ID:', user_id);
+      console.log('💰 当前积分:', profile.points);
+      console.log('💰 扣减后积分:', (profile.points || 0) - COST_PER_IMAGE);
+      
+      const { error: updateError } = await supabaseServer
         .from('profiles')
         .update({ points: (profile.points || 0) - COST_PER_IMAGE })
         .eq('id', user_id);
@@ -65,6 +70,21 @@ export async function POST(request: NextRequest) {
       if (updateError) {
         console.error('❌ 扣减积分失败:', updateError.message);
         return NextResponse.json({ error: '扣减积分失败: ' + updateError.message }, { status: 500 });
+      }
+
+      console.log('✅ 积分扣减成功');
+      
+      // 验证更新结果
+      const { data: updatedProfile, error: verifyError } = await supabaseServer
+        .from('profiles')
+        .select('points')
+        .eq('id', user_id)
+        .single();
+      
+      if (verifyError) {
+        console.error('❌ 验证积分失败:', verifyError.message);
+      } else {
+        console.log('✅ 验证积分成功，当前积分:', updatedProfile?.points);
       }
 
       // 记录账单

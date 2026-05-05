@@ -200,8 +200,12 @@ export default function Home() {
           // 刷新积分显示
           loadUserCredits();
           // 刷新 Header 组件的积分显示
+          console.log('[视频生成] 尝试调用 refreshUserCredits');
           if ((window as any).refreshUserCredits) {
+            console.log('[视频生成] refreshUserCredits 存在，调用中...');
             (window as any).refreshUserCredits();
+          } else {
+            console.log('[视频生成] refreshUserCredits 不存在');
           }
         } else if (pollResult.status === 'failed') {
           clearInterval(pollInterval);

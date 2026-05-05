@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
+import { supabaseServer } from '@/app/lib/supabase-server';
 
 const API_KEY = process.env.VIDEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
@@ -67,9 +68,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `积分不足！当前积分: ${originalPoints}，需要 ${COST_PER_VIDEO} 积分` }, { status: 400 });
       }
 
-      // 扣减积分
+      // 扣减积分（使用服务端密钥绕过 RLS）
       console.log('💰 开始扣减积分:', COST_PER_VIDEO);
-      const { error: updateError } = await supabase
+      const { error: updateError } = await supabaseServer
         .from('profiles')
         .update({ points: originalPoints - COST_PER_VIDEO })
         .eq('id', user_id);
