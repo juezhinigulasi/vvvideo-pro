@@ -382,7 +382,7 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
             <div>
               <label className="block text-sm text-[#888] mb-2">视频比例</label>
               <select
@@ -404,9 +404,6 @@ export default function Home() {
                 <option value={10}>10秒</option>
               </select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
             <div>
               <label className="block text-sm text-[#888] mb-2">积分消耗</label>
               <div className="w-full bg-[#1A1C1E] border border-yellow-500/30 rounded-xl px-5 py-3 flex items-center justify-between">
