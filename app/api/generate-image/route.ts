@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
       model: model || 'gpt-image-2-all',
       prompt: prompt,
       size: size || '1024x1024',
-      n: n,
+      n: parseInt(String(n)) || 1, // 确保是数字类型
       response_format: 'url',
     };
 
