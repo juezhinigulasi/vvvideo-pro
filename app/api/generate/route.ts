@@ -182,14 +182,12 @@ async function handlePollTask(id: string, userId: string) {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    // 尝试使用 POST 请求轮询（有些API需要POST）
-    const response = await fetch(`https://yunwu.ai/v1/video/query`, {
-      method: 'POST',
+    // 使用 GET 请求，参数通过 Query String 传递
+    const response = await fetch(`https://yunwu.ai/v1/video/query?id=${encodeURIComponent(id)}`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.VIDEO_API_KEY}`,
       },
-      body: JSON.stringify({ task_id: id }),
       signal: controller.signal,
     });
 
