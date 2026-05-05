@@ -48,6 +48,28 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
     return () => subscription.unsubscribe();
   }, []);
 
+  // Supabase Realtime 订阅 - 实时更新积分
+  useEffect(() => {
+    if (!user) return;
+
+    const realtimeSubscription = supabase
+      .channel('credits-channel')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'profiles',
+        filter: `id=eq.${user.id}`
+      }, (payload: any) => {
+        console.log('🔔 积分实时更新:', payload.new.credits);
+        setCredits(payload.new.credits || 0);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(realtimeSubscription);
+    };
+  }, [user]);
+
   useEffect(() => {
     if (externalCredits !== undefined) {
       setCredits(externalCredits);

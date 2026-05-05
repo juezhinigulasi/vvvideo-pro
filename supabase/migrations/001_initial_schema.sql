@@ -6,6 +6,9 @@
 -- 1. 确保 profiles 表存在，且包含 credits 字段（Integer，默认值 3100）
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 3100;
 
+-- 为现有用户设置初始积分（如果 credits 为 NULL）
+UPDATE profiles SET credits = 3100 WHERE credits IS NULL;
+
 -- 2. 创建 tasks 表用于记录生成任务
 CREATE TABLE IF NOT EXISTS tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -147,6 +150,23 @@ CREATE POLICY "Users can view own transactions" ON point_transactions
 DROP POLICY IF EXISTS "Service role can insert transactions" ON point_transactions;
 CREATE POLICY "Service role can insert transactions" ON point_transactions
   FOR INSERT WITH CHECK (true);
+
+-- 8. 创建触发器函数，新用户注册时自动创建profile记录
+CREATE OR REPLACE FUNCTION public.handle_new_user() 
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, credits)
+  VALUES (NEW.id, 3100)
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 9. 创建触发器
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- 8. 创建函数用于自动更新 updated_at 字段
 CREATE OR REPLACE FUNCTION update_updated_at_column()
