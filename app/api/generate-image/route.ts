@@ -5,8 +5,6 @@ const API_KEY = process.env.IMAGE_API_KEY || '';
 const COST_PER_IMAGE = 2;
 
 export async function POST(request: NextRequest) {
-  const startTime = Date.now();
-
   try {
     const { prompt, model, size, n = 1, image, user_id } = await request.json();
 
@@ -14,7 +12,6 @@ export async function POST(request: NextRequest) {
     console.log('user_id:', user_id);
     console.log('prompt:', prompt?.substring(0, 50));
     console.log('mode:', image ? 'image-to-image' : 'text-to-image');
-    console.log('===================================');
 
     if (!API_KEY) {
       console.error('❌ 环境变量 IMAGE_API_KEY 未配置');
@@ -29,28 +26,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '用户未登录' }, { status: 401 });
     }
 
-    // 1. 创建任务记录
-    const { data: task, error: taskError } = await supabase
-      .from('tasks')
-      .insert({
-        user_id,
-        type: 'image',
-        status: 'pending',
-        prompt,
-        cost: COST_PER_IMAGE,
-        metadata: { model, size, n, hasImage: !!image },
-      })
-      .select()
-      .single();
-
-    if (taskError || !task) {
-      console.error('❌ 创建任务记录失败:', taskError);
-      return NextResponse.json({ error: '创建任务失败' }, { status: 500 });
-    }
-
-    console.log('✅ 任务记录已创建, task_id:', task.id);
-
-    // 2. 使用新的安全扣费函数（原子性操作，同时扣除积分并插入账单记录）
+    // 1. 使用安全扣费函数（原子性操作，同时扣除积分并插入账单记录）
     const deductResult = await supabase.rpc('handle_credit_deduction', {
       p_user_id: user_id,
       p_type: 'image_gen',
@@ -60,13 +36,13 @@ export async function POST(request: NextRequest) {
 
     if (!deductResult.data?.success) {
       console.error('❌ 扣费失败:', deductResult.data);
-      await supabase.from('tasks').update({ status: 'failed', error_message: deductResult.data?.message || '扣费失败' }).eq('id', task.id);
-      return NextResponse.json({ error: deductResult.data?.message || '扣费失败' }, { status: 400 });
+      const message = deductResult.data?.message || '扣费失败';
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     console.log('✅ 积分已扣除:', COST_PER_IMAGE);
 
-    // 3. 调用第三方API
+    // 2. 调用第三方API
     const apiUrl = 'https://api.yunwu.ai/v1/images/generations';
 
     const requestBody: Record<string, unknown> = {
@@ -108,8 +84,7 @@ export async function POST(request: NextRequest) {
           errorMessage = errorJson.error?.message || errorJson.message || errorJson.error || errorMessage;
         } catch {}
 
-        await handleRefund(user_id, COST_PER_IMAGE, task.id, errorMessage);
-
+        await handleRefund(user_id, COST_PER_IMAGE, errorMessage);
         return NextResponse.json({ error: errorMessage }, { status: response.status });
       }
 
@@ -119,26 +94,20 @@ export async function POST(request: NextRequest) {
 
       if (urls.length === 0) {
         console.error('❌ 未生成任何图片');
-        await handleRefund(user_id, COST_PER_IMAGE, task.id, '未生成任何图片');
+        await handleRefund(user_id, COST_PER_IMAGE, '未生成任何图片');
         return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
 
       console.log('✅ 图片生成成功，数量:', urls.length);
 
-      // 4. 上传到Supabase Storage获取永久URL
+      // 3. 上传到Supabase Storage获取永久URL
       const permanentUrls: string[] = [];
       for (const url of urls) {
         const permanentUrl = await uploadToStorage(url, user_id, 'image');
         permanentUrls.push(permanentUrl);
       }
 
-      // 5. 更新任务状态
-      await supabase.from('tasks').update({
-        status: 'success',
-        result_url: permanentUrls.join(','),
-      }).eq('id', task.id);
-
-      console.log('✅ 图片生成完成，耗时:', Date.now() - startTime, 'ms');
+      console.log('✅ 图片生成完成');
 
       return NextResponse.json({
         status: 'completed',
@@ -149,7 +118,7 @@ export async function POST(request: NextRequest) {
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
-      await handleRefund(user_id, COST_PER_IMAGE, task.id, '网络请求失败');
+      await handleRefund(user_id, COST_PER_IMAGE, '网络请求失败');
       return NextResponse.json({ error: '网络请求失败，请稍后重试' }, { status: 500 });
     }
 
@@ -159,8 +128,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// 使用新的返还函数
-async function handleRefund(userId: string, amount: number, taskId: string, reason: string) {
+// 积分返还函数
+async function handleRefund(userId: string, amount: number, reason: string) {
   console.log('🔄 开始返还积分:', amount, '原因:', reason);
 
   const refundResult = await supabase.rpc('handle_credit_refund', {
@@ -172,7 +141,6 @@ async function handleRefund(userId: string, amount: number, taskId: string, reas
 
   if (refundResult.data?.success) {
     console.log('✅ 积分已返还:', amount);
-    await supabase.from('tasks').update({ status: 'failed', error_message: reason }).eq('id', taskId);
   } else {
     console.error('❌ 积分返还失败:', refundResult.error);
   }

@@ -46,12 +46,12 @@ export default function ProfilePage() {
     // 获取积分
     const { data: profile } = await supabase
       .from('profiles')
-      .select('credits')
+      .select('points')
       .eq('id', userId)
       .single();
     
     if (profile) {
-      setCredits(profile.credits || 0);
+      setCredits(profile.points || 0);
     }
 
     // 获取账单明细

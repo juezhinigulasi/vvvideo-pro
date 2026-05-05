@@ -242,15 +242,15 @@ export default function ImageGenerator() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('credits')
+      .select('points')
       .eq('id', user.id)
       .single();
 
     console.log('profile:', profile);
-    console.log('credits:', profile?.credits || 0);
-    if (!profile || profile.credits < COST_PER_IMAGE) {
+    console.log('points:', profile?.points || 0);
+    if (!profile || profile.points < COST_PER_IMAGE) {
       console.log('❌ 积分不足');
-      alert(`积分不足！当前积分: ${profile?.credits || 0}，生成图片需要 ${COST_PER_IMAGE} 积分`);
+      alert(`积分不足！当前积分: ${profile?.points || 0}，生成图片需要 ${COST_PER_IMAGE} 积分`);
       return;
     }
     

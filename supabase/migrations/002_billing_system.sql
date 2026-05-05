@@ -3,11 +3,11 @@
 -- 运行此脚本在 Supabase SQL Editor 中
 -- ================================================
 
--- 1. 确保 profiles 表存在，且包含 credits 字段（Integer，默认值 3100）
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 3100;
+-- 1. 确保 profiles 表存在 points 字段（Integer，默认值 3100）
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 3100;
 
--- 为现有用户设置初始积分（如果 credits 为 NULL）
-UPDATE profiles SET credits = 3100 WHERE credits IS NULL;
+-- 为现有用户设置初始积分（如果 points 为 NULL）
+UPDATE profiles SET points = 3100 WHERE points IS NULL;
 
 -- 2. 创建 billing_history 表（账单明细）
 CREATE TABLE IF NOT EXISTS billing_history (
@@ -31,8 +31,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  current_credits INTEGER;
-  new_credits INTEGER;
+  current_points INTEGER;
+  new_points INTEGER;
 BEGIN
   -- 检查参数
   IF p_amount <= 0 THEN
@@ -43,43 +43,41 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'message', '无效的扣费类型');
   END IF;
 
-  -- 开始事务（PostgreSQL函数默认在事务中执行）
-  
   -- 使用行锁查询当前积分
-  SELECT credits INTO current_credits
+  SELECT points INTO current_points
   FROM profiles
   WHERE id = p_user_id
   FOR UPDATE;
 
   -- 检查用户是否存在
-  IF current_credits IS NULL THEN
+  IF current_points IS NULL THEN
     RETURN jsonb_build_object('success', false, 'message', '用户不存在');
   END IF;
 
   -- 检查积分是否充足
-  IF current_credits < p_amount THEN
+  IF current_points < p_amount THEN
     RETURN jsonb_build_object(
       'success', false,
       'message', '积分不足',
-      'current_credits', current_credits,
+      'current_points', current_points,
       'required', p_amount
     );
   END IF;
 
   -- 执行扣减
-  new_credits := current_credits - p_amount;
-  UPDATE profiles SET credits = new_credits WHERE id = p_user_id;
+  new_points := current_points - p_amount;
+  UPDATE profiles SET points = new_points WHERE id = p_user_id;
 
   -- 插入账单记录（负数表示消耗）
   INSERT INTO billing_history (user_id, type, amount, description, metadata)
-  VALUES (p_user_id, p_type, -p_amount, p_description, jsonb_build_object('previous_credits', current_credits, 'new_credits', new_credits));
+  VALUES (p_user_id, p_type, -p_amount, p_description, jsonb_build_object('previous_points', current_points, 'new_points', new_points));
 
   -- 返回结果
   RETURN jsonb_build_object(
     'success', true,
     'message', '积分扣减成功',
-    'previous_credits', current_credits,
-    'new_credits', new_credits,
+    'previous_points', current_points,
+    'new_points', new_points,
     'deducted', p_amount
   );
 
@@ -96,8 +94,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  current_credits INTEGER;
-  new_credits INTEGER;
+  current_points INTEGER;
+  new_points INTEGER;
 BEGIN
   -- 检查参数
   IF p_amount <= 0 THEN
@@ -109,30 +107,30 @@ BEGIN
   END IF;
 
   -- 使用行锁查询当前积分
-  SELECT credits INTO current_credits
+  SELECT points INTO current_points
   FROM profiles
   WHERE id = p_user_id
   FOR UPDATE;
 
   -- 检查用户是否存在
-  IF current_credits IS NULL THEN
+  IF current_points IS NULL THEN
     RETURN jsonb_build_object('success', false, 'message', '用户不存在');
   END IF;
 
   -- 执行返还
-  new_credits := current_credits + p_amount;
-  UPDATE profiles SET credits = new_credits WHERE id = p_user_id;
+  new_points := current_points + p_amount;
+  UPDATE profiles SET points = new_points WHERE id = p_user_id;
 
   -- 插入账单记录（正数表示返还）
   INSERT INTO billing_history (user_id, type, amount, description, metadata)
-  VALUES (p_user_id, 'refund', p_amount, p_description, jsonb_build_object('previous_credits', current_credits, 'new_credits', new_credits));
+  VALUES (p_user_id, 'refund', p_amount, p_description, jsonb_build_object('previous_points', current_points, 'new_points', new_points));
 
   -- 返回结果
   RETURN jsonb_build_object(
     'success', true,
     'message', '积分返还成功',
-    'previous_credits', current_credits,
-    'new_credits', new_credits,
+    'previous_points', current_points,
+    'new_points', new_points,
     'refunded', p_amount
   );
 
@@ -149,8 +147,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  current_credits INTEGER;
-  new_credits INTEGER;
+  current_points INTEGER;
+  new_points INTEGER;
 BEGIN
   -- 检查参数
   IF p_amount <= 0 THEN
@@ -158,30 +156,30 @@ BEGIN
   END IF;
 
   -- 使用行锁查询当前积分
-  SELECT credits INTO current_credits
+  SELECT points INTO current_points
   FROM profiles
   WHERE id = p_user_id
   FOR UPDATE;
 
   -- 检查用户是否存在
-  IF current_credits IS NULL THEN
+  IF current_points IS NULL THEN
     RETURN jsonb_build_object('success', false, 'message', '用户不存在');
   END IF;
 
   -- 执行充值
-  new_credits := current_credits + p_amount;
-  UPDATE profiles SET credits = new_credits WHERE id = p_user_id;
+  new_points := current_points + p_amount;
+  UPDATE profiles SET points = new_points WHERE id = p_user_id;
 
-  -- 插入账单记录（正数表示充值）
+  -- 插入账单记录（正数表示增加）
   INSERT INTO billing_history (user_id, type, amount, description, metadata)
-  VALUES (p_user_id, 'recharge', p_amount, p_description, jsonb_build_object('previous_credits', current_credits, 'new_credits', new_credits));
+  VALUES (p_user_id, 'recharge', p_amount, p_description, jsonb_build_object('previous_points', current_points, 'new_points', new_points));
 
   -- 返回结果
   RETURN jsonb_build_object(
     'success', true,
     'message', '充值成功',
-    'previous_credits', current_credits,
-    'new_credits', new_credits,
+    'previous_points', current_points,
+    'new_points', new_points,
     'recharged', p_amount
   );
 
@@ -191,37 +189,32 @@ EXCEPTION
 END;
 $$;
 
--- 6. 启用 RLS（行级安全策略）
-ALTER TABLE billing_history ENABLE ROW LEVEL SECURITY;
-
--- 7. 创建 RLS 策略
-DROP POLICY IF EXISTS "Users can view own billing history" ON billing_history;
-CREATE POLICY "Users can view own billing history" ON billing_history
-  FOR SELECT USING (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Service role can insert billing history" ON billing_history;
-CREATE POLICY "Service role can insert billing history" ON billing_history
-  FOR INSERT WITH CHECK (true);
-
--- 8. 创建触发器函数，新用户注册时自动创建profile记录
+-- 6. 创建新用户触发器函数
 CREATE OR REPLACE FUNCTION public.handle_new_user() 
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, credits)
+  INSERT INTO public.profiles (id, points)
   VALUES (NEW.id, 3100)
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 9. 创建触发器
+-- 创建触发器
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- ================================================
--- 验证脚本
--- ================================================
--- SELECT * FROM billing_history LIMIT 10;
--- SELECT credits FROM profiles WHERE id = auth.uid();
+-- 7. 配置行级安全策略（RLS）
+ALTER TABLE billing_history ENABLE ROW LEVEL SECURITY;
+
+-- 用户只能查看自己的账单
+DROP POLICY IF EXISTS "Users can view own billing history" ON billing_history;
+CREATE POLICY "Users can view own billing history" ON billing_history
+  FOR SELECT USING (auth.uid() = user_id);
+
+-- 服务角色可以插入账单记录
+DROP POLICY IF EXISTS "Service role can insert billing history" ON billing_history;
+CREATE POLICY "Service role can insert billing history" ON billing_history
+  FOR INSERT WITH CHECK (true);
