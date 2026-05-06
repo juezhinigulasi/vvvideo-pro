@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ImageHeader from '../components/ImageHeader';
 import { supabase } from '../lib/supabase';
 
 const COST_PER_IMAGE = 2;
+const POLL_INTERVAL = 3000; // 轮询间隔（毫秒）
 
 interface GenerationRecord {
   id: string;
@@ -15,6 +16,7 @@ interface GenerationRecord {
   status: 'generating' | 'success' | 'failed';
   createdAt: number;
   error?: string;
+  taskId?: string; // 新增：用于轮询的任务ID
 }
 
 export default function ImageGenerator() {
@@ -45,10 +47,30 @@ export default function ImageGenerator() {
   const [isRecording, setIsRecording] = useState(false);
   const [recognition, setRecognition] = useState<any>(null);
   const [credits, setCredits] = useState(0);
+  
+  // 轮询相关状态
+  const pollingIntervalsRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   useEffect(() => {
     loadUserCredits();
+    // 页面加载时恢复轮询
+    resumePolling();
+    
+    return () => {
+      // 组件卸载时清除所有轮询
+      Object.values(pollingIntervalsRef.current).forEach(clearInterval);
+    };
   }, []);
+  
+  // 恢复轮询（页面刷新后）
+  const resumePolling = () => {
+    const pendingRecords = generationHistory.filter(r => r.status === 'generating' && r.taskId);
+    pendingRecords.forEach(record => {
+      if (!pollingIntervalsRef.current[record.id]) {
+        pollTask(record.taskId!, record.id);
+      }
+    });
+  };
 
   const loadUserCredits = async () => {
     try {
@@ -64,6 +86,69 @@ export default function ImageGenerator() {
 
   const saveHistory = (history: GenerationRecord[]) => {
     localStorage.setItem('yunwuai_generation_history', JSON.stringify(history));
+  };
+  
+  // 轮询任务状态
+  const pollTask = async (taskId: string, recordId: string) => {
+    console.log('🔄 轮询任务:', taskId);
+    
+    const interval = setInterval(async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getSession();
+        if (!user) {
+          clearInterval(interval);
+          return;
+        }
+        
+        const response = await fetch(`/api/generate-image?taskId=${encodeURIComponent(taskId)}&user_id=${encodeURIComponent(user.id)}`);
+        const task = await response.json();
+        
+        console.log('📡 轮询响应:', task);
+        
+        if (task.status === 'completed' && task.result) {
+          clearInterval(interval);
+          delete pollingIntervalsRef.current[recordId];
+          
+          // 更新记录状态为成功
+          setGenerationHistory(prev => {
+            const updated = prev.map(r => 
+              r.id === recordId 
+                ? { ...r, images: task.result, status: 'success' as const }
+                : r
+            );
+            saveHistory(updated);
+            return updated;
+          });
+          
+          // 刷新积分
+          loadUserCredits();
+          if ((window as any).refreshUserCredits) {
+            (window as any).refreshUserCredits();
+          }
+        } else if (task.status === 'failed') {
+          clearInterval(interval);
+          delete pollingIntervalsRef.current[recordId];
+          
+          // 更新记录状态为失败
+          setGenerationHistory(prev => {
+            const updated = prev.map(r => 
+              r.id === recordId 
+                ? { ...r, status: 'failed' as const, error: task.error || '生成失败' }
+                : r
+            );
+            saveHistory(updated);
+            return updated;
+          });
+        } else if (task.status === 'not_found') {
+          clearInterval(interval);
+          delete pollingIntervalsRef.current[recordId];
+        }
+      } catch (error) {
+        console.error('轮询失败:', error);
+      }
+    }, POLL_INTERVAL);
+    
+    pollingIntervalsRef.current[recordId] = interval;
   };
 
   const ratios = ["9:16", "16:9", "1:1", "3:2", "2:3", "4:3"];
@@ -273,21 +358,6 @@ export default function ImageGenerator() {
     console.log('上传的图片:', uploadedImages?.map((img, i) => `图片${i+1}: ${img?.substring(0, 30)}...`));
     
     const recordId = Date.now().toString();
-    const newRecord: GenerationRecord = {
-      id: recordId,
-      prompt,
-      model: 'gpt-image-2-all',
-      ratio,
-      images: [],
-      status: 'generating',
-      createdAt: Date.now(),
-    };
-    
-    setGenerationHistory(prev => {
-      const updated = [newRecord, ...prev];
-      saveHistory(updated);
-      return updated;
-    });
     
     try {
       const bodyData: Record<string, any> = {
@@ -329,7 +399,6 @@ export default function ImageGenerator() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(bodyData),
-        keepalive: true, // 确保页面导航时请求不会被取消
       });
 
       console.log('Response status:', response.status, response.statusText);
@@ -399,29 +468,40 @@ export default function ImageGenerator() {
       const data = await response.json();
       console.log('Received response:', data);
       
-      // 后端返回的格式是 { status, urls, cost }
-      if (data.status === 'completed' && data.urls && data.urls.length > 0) {
-        const images = data.urls;
-        console.log('Generated images:', images);
-
+      // 后端返回的格式是 { status, taskId, message }
+      if (data.status === 'processing' && data.taskId) {
+        console.log('✅ 任务创建成功，开始轮询:', data.taskId);
+        
+        // 创建生成记录
+        const newRecord: GenerationRecord = {
+          id: recordId,
+          prompt,
+          model: 'gpt-image-2-all',
+          ratio,
+          images: [],
+          status: 'generating',
+          createdAt: Date.now(),
+          taskId: data.taskId, // 保存任务ID用于轮询
+        };
+        
         setGenerationHistory(prev => {
-          const updated = prev.map(r => 
-            r.id === recordId 
-              ? { ...r, images, status: 'success' as const }
-              : r
-          );
+          const updated = [newRecord, ...prev];
           saveHistory(updated);
           return updated;
         });
-
-        // 刷新积分显示
+        
+        // 开始轮询任务状态
+        pollTask(data.taskId, recordId);
+        
+        // 刷新积分显示（积分已在后端扣除）
         loadUserCredits();
-        // 同时刷新 Header 的积分显示
         if ((window as any).refreshUserCredits) {
           (window as any).refreshUserCredits();
         }
+      } else if (data.error) {
+        throw new Error(data.error);
       } else {
-        console.warn('No images returned in response');
+        console.warn('Unexpected response format:', data);
         throw new Error('API 返回的数据格式不正确');
       }
     } catch (error) {
