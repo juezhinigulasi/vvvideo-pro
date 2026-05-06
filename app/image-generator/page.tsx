@@ -329,7 +329,6 @@ export default function ImageGenerator() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(bodyData),
-        keepalive: true, // 确保页面导航时请求不会被取消
       });
 
       console.log('Response status:', response.status, response.statusText);
