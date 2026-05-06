@@ -94,7 +94,8 @@ export default function ImageGenerator() {
     
     const interval = setInterval(async () => {
       try {
-        const { data: { user } } = await supabase.auth.getSession();
+        const { data } = await supabase.auth.getSession();
+        const user = data.session?.user;
         if (!user) {
           clearInterval(interval);
           return;

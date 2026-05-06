@@ -72,9 +72,9 @@ export async function POST(request: NextRequest) {
 
       console.log('✅ 积分扣减成功');
       
-      // 记录账单
+      // 记录账单（使用服务端密钥）
       console.log('📝 记录账单...');
-      const { error: insertError } = await supabase.from('billing_history').insert({
+      const { error: insertError } = await getSupabaseServer().from('billing_history').insert({
         user_id,
         type: 'image_gen',
         amount: -COST_PER_IMAGE,
