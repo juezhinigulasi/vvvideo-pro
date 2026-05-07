@@ -212,50 +212,15 @@ export default function ImageGenerator() {
   };
 
   const handleDownload = (imageUrl: string) => {
-    try {
-      // 方案1：尝试直接使用 fetch 下载（带 credentials: 'omit' 避免 CORS 问题）
-      fetch(imageUrl, {
-        method: 'GET',
-        credentials: 'omit',
-        headers: {
-          'Referrer-Policy': 'no-referrer',
-        },
-      }).then(response => {
-        if (response.ok) {
-          response.blob().then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `generated-image-${Date.now()}.png`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-          }).catch(() => {
-            fallbackDownload(imageUrl);
-          });
-        } else {
-          fallbackDownload(imageUrl);
-        }
-      }).catch(() => {
-        fallbackDownload(imageUrl);
-      });
-    } catch (error) {
-      fallbackDownload(imageUrl);
-    }
-  };
-
-  const fallbackDownload = (imageUrl: string) => {
-    // 方案2：创建隐藏的 iframe 来触发下载
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = imageUrl;
-    document.body.appendChild(iframe);
-    
-    // 设置超时移除 iframe
-    setTimeout(() => {
-      document.body.removeChild(iframe);
-    }, 5000);
+    // 最直接的下载方式：创建 a 标签并点击
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = `generated-image-${Date.now()}.png`;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleGenerate = async () => {
