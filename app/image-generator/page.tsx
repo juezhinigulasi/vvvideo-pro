@@ -212,9 +212,12 @@ export default function ImageGenerator() {
   };
 
   const handleDownload = (imageUrl: string) => {
-    // 最直接的下载方式：创建 a 标签并点击
+    // 使用后端代理API下载图片，避免CORS问题
+    const encodedUrl = encodeURIComponent(imageUrl);
+    const downloadUrl = `/api/download-image?url=${encodedUrl}`;
+    
     const link = document.createElement('a');
-    link.href = imageUrl;
+    link.href = downloadUrl;
     link.download = `generated-image-${Date.now()}.png`;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
