@@ -734,7 +734,10 @@ export default function ImageGenerator() {
                                   </svg>
                                 </button>
                                 <button
-                                  onClick={() => handleDownload(record.images[0])}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownload(record.images[0]);
+                                  }}
                                   className="p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
                                 >
                                   <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
