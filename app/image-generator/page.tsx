@@ -211,84 +211,51 @@ export default function ImageGenerator() {
     return sizeMap[ratio] || '1024x1024';
   };
 
-  const handleDownload = async (imageUrl: string) => {
+  const handleDownload = (imageUrl: string) => {
     try {
-      // 如果是 base64 格式，直接下载
-      if (imageUrl.startsWith('data:')) {
-        const link = document.createElement('a');
-        link.href = imageUrl;
-        link.download = `generated-image-${Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
-      }
-
-      // 对于外部 URL，使用带有 CORS 模式的 fetch
-      const response = await fetch(imageUrl, {
-        mode: 'no-cors',
+      // 方案1：尝试直接使用 fetch 下载（带 credentials: 'omit' 避免 CORS 问题）
+      fetch(imageUrl, {
+        method: 'GET',
+        credentials: 'omit',
         headers: {
           'Referrer-Policy': 'no-referrer',
         },
+      }).then(response => {
+        if (response.ok) {
+          response.blob().then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `generated-image-${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          }).catch(() => {
+            fallbackDownload(imageUrl);
+          });
+        } else {
+          fallbackDownload(imageUrl);
+        }
+      }).catch(() => {
+        fallbackDownload(imageUrl);
       });
-
-      // 如果响应不可用（由于 CORS），尝试另一种方法
-      if (!response.ok || response.type === 'opaque') {
-        // 创建一个隐藏的 img 标签，等待图片加载后再下载
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        
-        return new Promise<void>((resolve, reject) => {
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            
-            if (ctx) {
-              ctx.drawImage(img, 0, 0);
-              const dataUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.href = dataUrl;
-              link.download = `generated-image-${Date.now()}.png`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              resolve();
-            } else {
-              reject(new Error('无法创建画布'));
-            }
-          };
-          
-          img.onerror = () => {
-            // 如果上述方法都失败，直接尝试打开新窗口
-            const link = document.createElement('a');
-            link.href = imageUrl;
-            link.target = '_blank';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            resolve();
-          };
-          
-          img.src = imageUrl;
-        });
-      }
-
-      // 如果响应正常，使用 blob 方式下载
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `generated-image-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
     } catch (error) {
-      console.error('下载失败:', error);
-      alert('下载失败，请右键图片选择"另存为"');
+      fallbackDownload(imageUrl);
     }
+  };
+
+  const fallbackDownload = (imageUrl: string) => {
+    // 方案2：创建隐藏的 iframe 来触发下载
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = imageUrl;
+    document.body.appendChild(iframe);
+    
+    // 设置超时移除 iframe
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 5000);
   };
 
   const handleGenerate = async () => {
