@@ -221,13 +221,18 @@ async function handlePollTask(id: string, userId: string) {
         video_url: videoUrl,
       });
     }
-    // 处理失败状态
+    // 处理失败状态 - 需要返还积分
     else if (result.status === 'failed' || result.status === 'error') {
       const errorMsg = result.error || result.message || '视频生成失败';
       console.log('❌ 视频生成失败:', errorMsg);
+      
+      // 返还积分并记录账单
+      await refundPoints(userId, COST_PER_VIDEO, errorMsg);
+      
       return NextResponse.json({
         status: 'failed',
         error: errorMsg,
+        refunded: true,
       });
     }
     // 处理进行中状态（包括 pending, processing, running 等）
