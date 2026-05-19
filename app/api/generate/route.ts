@@ -212,8 +212,10 @@ async function handlePollTask(id: string, userId: string) {
     console.log('📋 云雾API原始响应:', JSON.stringify(result));
     
     // 统一返回格式，确保与前端期望一致
+    console.log('📋 云雾API状态:', result.status);
+    
     // 处理成功状态
-    if (result.status === 'completed' || result.status === 'success') {
+    if (result.status === 'completed' || result.status === 'success' || result.status === 'succeeded') {
       const videoUrl = result.video_url || result.url || result.data?.video_url;
       console.log('✅ 视频生成完成，URL:', videoUrl);
       return NextResponse.json({
@@ -221,10 +223,14 @@ async function handlePollTask(id: string, userId: string) {
         video_url: videoUrl,
       });
     }
+    
+    // 定义所有可能的失败状态
+    const failedStatuses = ['failed', 'error', 'expired', 'timeout', 'cancelled', 'canceled', 'aborted', 'rejected'];
+    
     // 处理失败状态 - 需要返还积分
-    else if (result.status === 'failed' || result.status === 'error') {
-      const errorMsg = result.error || result.message || '视频生成失败';
-      console.log('❌ 视频生成失败:', errorMsg);
+    if (failedStatuses.includes(result.status) || result.status?.toLowerCase().includes('fail') || result.status?.toLowerCase().includes('error')) {
+      const errorMsg = result.error || result.message || result.reason || `视频生成失败: ${result.status}`;
+      console.log('❌ 视频生成失败:', errorMsg, '原始状态:', result.status);
       
       // 返还积分并记录账单
       await refundPoints(userId, COST_PER_VIDEO, errorMsg);
@@ -235,14 +241,13 @@ async function handlePollTask(id: string, userId: string) {
         refunded: true,
       });
     }
+    
     // 处理进行中状态（包括 pending, processing, running 等）
-    else {
-      console.log('⏳ 任务进行中，当前状态:', result.status);
-      return NextResponse.json({
-        status: 'processing',
-        current_status: result.status,
-      });
-    }
+    console.log('⏳ 任务进行中，当前状态:', result.status);
+    return NextResponse.json({
+      status: 'processing',
+      current_status: result.status,
+    });
 
   } catch (fetchError) {
     clearTimeout(timeoutId);
@@ -253,31 +258,58 @@ async function handlePollTask(id: string, userId: string) {
 
 // 返还积分
 async function refundPoints(userId: string, amount: number, reason: string) {
+  console.log('🔄 开始返还积分:', { userId, amount, reason });
+  
   try {
     // 使用服务端客户端查询用户信息（不受RLS限制）
-    const { data: profile } = await getSupabaseServer()
+    const serverClient = getSupabaseServer();
+    const { data: profile, error: profileError } = await serverClient
       .from('profiles')
       .select('points')
       .eq('id', userId)
       .single();
 
+    if (profileError) {
+      console.error('❌ 查询用户信息失败:', profileError);
+      return;
+    }
+
+    console.log('📊 用户当前积分:', profile?.points);
+
     if (profile) {
+      const newPoints = (profile.points || 0) + amount;
+      console.log('💰 返还后积分:', newPoints);
+      
       // 使用服务端客户端更新积分（不受RLS限制）
-      await getSupabaseServer()
+      const { error: updateError } = await serverClient
         .from('profiles')
-        .update({ points: (profile.points || 0) + amount })
+        .update({ points: newPoints })
         .eq('id', userId);
 
+      if (updateError) {
+        console.error('❌ 更新积分失败:', updateError);
+        return;
+      }
+
+      console.log('✅ 积分更新成功');
+
       // 记录账单
-      await supabase.from('billing_history').insert({
+      const { error: insertError } = await supabase.from('billing_history').insert({
         user_id: userId,
         type: 'refund',
         amount: amount,
         description: `返还: ${reason}`,
       });
-      console.log('✅ 积分已返还:', amount);
+
+      if (insertError) {
+        console.error('❌ 记录账单失败:', insertError);
+      } else {
+        console.log('✅ 账单记录成功');
+      }
+    } else {
+      console.error('❌ 未找到用户档案');
     }
   } catch (e) {
-    console.error('❌ 积分返还失败:', e);
+    console.error('❌ 积分返还异常:', e);
   }
 }
