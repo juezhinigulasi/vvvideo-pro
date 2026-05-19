@@ -249,18 +249,21 @@ async function handlePollTask(id: string, userId: string) {
 // 返还积分
 async function refundPoints(userId: string, amount: number, reason: string) {
   try {
-    const { data: profile } = await supabase
+    // 使用服务端客户端查询用户信息（不受RLS限制）
+    const { data: profile } = await getSupabaseServer()
       .from('profiles')
       .select('points')
       .eq('id', userId)
       .single();
 
     if (profile) {
-      await supabase
+      // 使用服务端客户端更新积分（不受RLS限制）
+      await getSupabaseServer()
         .from('profiles')
         .update({ points: (profile.points || 0) + amount })
         .eq('id', userId);
 
+      // 记录账单
       await supabase.from('billing_history').insert({
         user_id: userId,
         type: 'refund',
