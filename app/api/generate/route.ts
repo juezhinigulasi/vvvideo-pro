@@ -146,7 +146,7 @@ export async function POST(request: Request) {
         prompt: prompt,
         images: input_reference ? [input_reference.trim()] : [],
         enhance_prompt: true,
-        enable_upsample: 'true',
+        enable_upsample: true,
         aspect_ratio: aspect_ratio || '16:9',
       };
     } else {
