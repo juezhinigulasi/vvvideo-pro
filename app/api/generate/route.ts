@@ -264,8 +264,25 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
     
     // 处理成功状态
     if (result.status === 'completed' || result.status === 'success' || result.status === 'succeeded') {
-      const videoUrl = result.video_url || result.url || result.data?.video_url;
+      // 从多个可能的字段提取视频URL
+      const videoUrl = 
+        result.video_url || 
+        result.url || 
+        result.data?.video_url ||
+        (result.detail?.video_url) ||
+        (result.detail?.url);
       console.log('✅ 视频生成完成，URL:', videoUrl);
+      
+      if (!videoUrl) {
+        console.error('❌ 视频生成成功但未返回视频URL');
+        await refundPoints(userId, COST_PER_VIDEO, '视频生成成功但未返回URL');
+        return NextResponse.json({ 
+          status: 'failed', 
+          error: '视频生成成功但未返回视频URL',
+          refunded: true 
+        });
+      }
+      
       return NextResponse.json({
         status: 'completed',
         video_url: videoUrl,
