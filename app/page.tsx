@@ -16,6 +16,19 @@ interface Task {
   taskId: string;
 }
 
+interface ModelConfig {
+  id: string;
+  name: string;
+  duration: number;
+  cost: number;
+}
+
+const MODELS: ModelConfig[] = [
+  { id: 'grok-video-3-10s', name: 'Grok 3', duration: 10, cost: 3 },
+  { id: 'veo', name: 'VEO', duration: 8, cost: 3 },
+  { id: 'veo-4k', name: 'VEO 4K', duration: 8, cost: 3 },
+];
+
 interface GlobalConfig {
   model: string;
   videoRatio: string;
@@ -46,6 +59,10 @@ export default function Home() {
     videoRatio: '16:9',
     duration: 10,
   });
+
+  const getCurrentModelConfig = () => {
+    return MODELS.find(m => m.id === globalConfig.model) || MODELS[0];
+  };
 
   const [credits, setCredits] = useState(0);
 
@@ -249,6 +266,14 @@ export default function Home() {
 
   const updateGlobalConfig = useCallback((field: keyof GlobalConfig, value: string | number) => {
     setGlobalConfig(prevConfig => {
+      if (field === 'model') {
+        const modelConfig = MODELS.find(m => m.id === value);
+        return { 
+          ...prevConfig, 
+          model: value as string,
+          duration: modelConfig?.duration || prevConfig.duration 
+        };
+      }
       return { ...prevConfig, [field]: value };
     });
   }, []);
@@ -280,8 +305,6 @@ export default function Home() {
     }
   }, []);
 
-  const COST_PER_VIDEO = 3;
-
   const handleGenerate = useCallback(async (taskId: number) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || isGenerating(task.status)) return;
@@ -289,6 +312,8 @@ export default function Home() {
       alert('请输入提示词');
       return;
     }
+
+    const modelConfig = getCurrentModelConfig();
 
     const { data } = await supabase.auth.getSession();
     const user = data?.session?.user;
@@ -303,8 +328,8 @@ export default function Home() {
       .eq('id', user.id)
       .single();
 
-    if (!profile || profile.points < COST_PER_VIDEO) {
-      alert(`积分不足！当前积分: ${profile?.points || 0}，生成视频需要 ${COST_PER_VIDEO} 积分`);
+    if (!profile || profile.points < modelConfig.cost) {
+      alert(`积分不足！当前积分: ${profile?.points || 0}，生成视频需要 ${modelConfig.cost} 积分`);
       return;
     }
 
@@ -401,7 +426,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#1A1C1E]">
-      <Header credits={credits} costPerVideo={COST_PER_VIDEO} />
+      <Header credits={credits} costPerVideo={getCurrentModelConfig().cost} />
 
       <div className="max-w-7xl mx-auto px-6 mb-8">
         <div className="bg-[#222428] backdrop-blur-md rounded-2xl border border-white/10 p-6" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}>
@@ -415,7 +440,19 @@ export default function Home() {
             <h2 className="text-lg font-semibold text-[#E5E5E5]" style={{ fontFamily: '"Noto Serif SC", Georgia, serif' }}>全局配置</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-5">
+            <div>
+              <label className="block text-sm text-[#888] mb-2">AI模型</label>
+              <select
+                value={globalConfig.model}
+                onChange={(e) => updateGlobalConfig('model', e.target.value)}
+                className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
+              >
+                {MODELS.map(model => (
+                  <option key={model.id} value={model.id}>{model.name}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm text-[#888] mb-2">视频比例</label>
               <select
@@ -434,14 +471,14 @@ export default function Home() {
                 onChange={(e) => updateGlobalConfig('duration', Number(e.target.value))}
                 className="w-full bg-[#1A1C1E] border border-white/10 rounded-xl px-5 py-3 text-[#E5E5E5] focus:outline-none focus:border-[#D4AF37] transition-all appearance-none cursor-pointer"
               >
-                <option value={10}>10秒</option>
+                <option value={getCurrentModelConfig().duration}>{getCurrentModelConfig().duration}秒</option>
               </select>
             </div>
             <div>
               <label className="block text-sm text-[#888] mb-2">积分消耗</label>
               <div className="w-full bg-[#1A1C1E] border border-yellow-500/30 rounded-xl px-5 py-3 flex items-center justify-between">
-                <span className="text-yellow-400">生成视频</span>
-                <span className="text-[#E5E5E5] font-medium">消耗 {COST_PER_VIDEO} 积分</span>
+                <span className="text-yellow-400">{getCurrentModelConfig().name}</span>
+                <span className="text-[#E5E5E5] font-medium">消耗 {getCurrentModelConfig().cost} 积分</span>
               </div>
             </div>
           </div>
