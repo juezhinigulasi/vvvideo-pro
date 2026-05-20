@@ -5,6 +5,13 @@ import { getSupabaseServer } from '@/app/lib/supabase-server';
 const API_KEY = process.env.VIDEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
 
+// 模型映射：前端模型 -> 云雾API模型
+const MODEL_MAPPING: Record<string, string> = {
+  'grok-video-3-10s': 'grok-video-3-10s',
+  'veo': 'veo_3_1-fast',
+  'veo-4k': 'veo_3_1-fast-4k',
+};
+
 export async function POST(request: Request) {
   const startTime = Date.now();
 
@@ -107,15 +114,21 @@ export async function POST(request: Request) {
 
     // 2. 调用第三方API创建任务（简化：直接调用，不创建本地任务记录）
     console.log('🌐 开始调用视频生成API...');
+    
+    // 获取映射后的云雾API模型
+    const apiModel = MODEL_MAPPING[model || 'grok-video-3-10s'] || 'grok-video-3-10s';
+    console.log('📋 使用模型:', apiModel, '(前端模型:', model, ')');
+    
     const requestBody = {
-      model: model || 'grok-video-3-10s',
+      model: apiModel,
       prompt: prompt,
-      aspect_ratio: aspect_ratio || '16:9',
-      size: '720P',
       images: input_reference ? [input_reference.trim()] : [],
+      enhance_prompt: true,
+      enable_upsample: 'true',
+      aspect_ratio: aspect_ratio || '16:9',
     };
 
-    console.log('📤 请求体:', JSON.stringify(requestBody).substring(0, 100) + '...');
+    console.log('📤 请求体:', JSON.stringify(requestBody));
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000);
