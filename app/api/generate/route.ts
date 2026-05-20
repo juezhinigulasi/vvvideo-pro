@@ -12,6 +12,11 @@ const MODEL_MAPPING: Record<string, string> = {
   'veo-4k': 'veo_3_1-fast-4k',
 };
 
+// 判断是否为VEO系列模型
+const isVeoModel = (model: string): boolean => {
+  return model === 'veo' || model === 'veo-4k' || model?.startsWith('veo');
+};
+
 export async function POST(request: Request) {
   const startTime = Date.now();
 
@@ -119,14 +124,30 @@ export async function POST(request: Request) {
     const apiModel = MODEL_MAPPING[model || 'grok-video-3-10s'] || 'grok-video-3-10s';
     console.log('📋 使用模型:', apiModel, '(前端模型:', model, ')');
     
-    const requestBody = {
-      model: apiModel,
-      prompt: prompt,
-      images: input_reference ? [input_reference.trim()] : [],
-      enhance_prompt: true,
-      enable_upsample: 'true',
-      aspect_ratio: aspect_ratio || '16:9',
-    };
+    // 根据模型类型构建请求体
+    // VEO模型使用新API格式，Grok模型使用原有格式
+    let requestBody: Record<string, unknown>;
+    
+    if (isVeoModel(model || '')) {
+      // VEO系列模型：使用新API格式
+      requestBody = {
+        model: apiModel,
+        prompt: prompt,
+        images: input_reference ? [input_reference.trim()] : [],
+        enhance_prompt: true,
+        enable_upsample: 'true',
+        aspect_ratio: aspect_ratio || '16:9',
+      };
+    } else {
+      // Grok模型：使用原有格式
+      requestBody = {
+        model: apiModel,
+        prompt: prompt,
+        aspect_ratio: aspect_ratio || '16:9',
+        size: '720P',
+        images: input_reference ? [input_reference.trim()] : [],
+      };
+    }
 
     console.log('📤 请求体:', JSON.stringify(requestBody));
 
