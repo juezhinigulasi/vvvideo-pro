@@ -242,7 +242,15 @@ async function handlePollTask(id: string, userId: string) {
     
     // 处理失败状态 - 需要返还积分
     if (failedStatuses.includes(result.status) || result.status?.toLowerCase().includes('fail') || result.status?.toLowerCase().includes('error')) {
-      const errorMsg = result.error || result.message || result.reason || `视频生成失败: ${result.status}`;
+      // 从多个字段提取错误信息
+      const errorMsg = 
+        result.error_message || 
+        result.error || 
+        result.message || 
+        result.reason || 
+        (result.detail?.error_message) ||
+        (result.detail?.message) ||
+        `视频生成失败: ${result.status}`;
       console.log('❌ 视频生成失败:', errorMsg, '原始状态:', result.status);
       
       // 返还积分并记录账单
