@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
 import { getSupabaseServer } from '@/app/lib/supabase-server';
 
-const API_KEY = process.env.VIDEO_API_KEY || '';
+const GROK_API_KEY = process.env.GROK_API_KEY || '';
+const VEO_API_KEY = process.env.VEO_API_KEY || '';
 const COST_PER_VIDEO = 3;
 
 // 模型映射：前端模型 -> 云雾API模型
@@ -17,6 +18,14 @@ const isVeoModel = (model: string): boolean => {
   return model === 'veo' || model === 'veo-4k' || model?.startsWith('veo');
 };
 
+// 获取当前模型对应的API密钥
+const getApiKey = (model: string): string => {
+  if (isVeoModel(model)) {
+    return VEO_API_KEY;
+  }
+  return GROK_API_KEY;
+};
+
 export async function POST(request: Request) {
   const startTime = Date.now();
 
@@ -27,16 +36,18 @@ export async function POST(request: Request) {
     console.log('========== 视频生成请求 ==========');
     console.log('poll:', poll, 'id:', id);
     console.log('user_id:', user_id);
-    console.log('API_KEY configured:', API_KEY ? 'Yes' : 'No');
+    const currentApiKey = getApiKey(model || '');
+    console.log('📋 当前模型:', model, '使用密钥:', currentApiKey ? '已配置' : '未配置');
 
-    if (!API_KEY) {
-      console.error('❌ 环境变量 VIDEO_API_KEY 未配置');
+    if (!currentApiKey) {
+      const keyName = isVeoModel(model || '') ? 'VEO_API_KEY' : 'GROK_API_KEY';
+      console.error('❌ 环境变量', keyName, '未配置');
       return NextResponse.json({ error: '服务器配置错误，请联系管理员' }, { status: 500 });
     }
 
     // 轮询模式 - 查询任务状态
     if (poll && id) {
-      return handlePollTask(id, user_id);
+      return handlePollTask(id, user_id, model || '');
     }
 
     // 新建任务模式 - 创建视频
@@ -159,7 +170,7 @@ export async function POST(request: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`,
+          'Authorization': `Bearer ${currentApiKey}`,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -210,8 +221,11 @@ export async function POST(request: Request) {
 }
 
 // 轮询任务状态
-async function handlePollTask(id: string, userId: string) {
-  console.log('🔄 轮询任务状态:', id);
+async function handlePollTask(id: string, userId: string, model: string = '') {
+  console.log('🔄 轮询任务状态:', id, '模型:', model);
+  
+  // 根据模型获取对应的API密钥
+  const apiKey = getApiKey(model);
   
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -221,7 +235,7 @@ async function handlePollTask(id: string, userId: string) {
     const response = await fetch(`https://yunwu.ai/v1/video/query?id=${encodeURIComponent(id)}`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${process.env.VIDEO_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       signal: controller.signal,
     });
