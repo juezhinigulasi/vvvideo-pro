@@ -9,8 +9,8 @@ const COST_PER_VIDEO = 3;
 // 模型映射：前端模型 -> 云雾API模型
 const MODEL_MAPPING: Record<string, string> = {
   'grok-video-3-10s': 'grok-video-3-10s',
-  'veo': 'veo_3_1-fast',
-  'veo-4k': 'veo_3_1-fast-4k',
+  'veo': 'veo3_1-fast',
+  'veo-4k': 'veo3_1-fast-4k',
 };
 
 // 判断是否为VEO系列模型
