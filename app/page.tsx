@@ -280,17 +280,18 @@ export default function Home() {
 
   const downloadVideo = useCallback(async (videoUrl: string, taskId: number) => {
     try {
-      const response = await fetch(videoUrl);
-      if (!response.ok) throw new Error('下载失败');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `video_${taskId}_${Date.now()}.mp4`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      // 使用后端代理API下载视频，避免CORS问题
+      const encodedUrl = encodeURIComponent(videoUrl);
+      const downloadUrl = `/api/download-video?url=${encodedUrl}`;
+      
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `video_${taskId}_${Date.now()}.mp4`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch {
       alert('下载失败，请重试');
     }
