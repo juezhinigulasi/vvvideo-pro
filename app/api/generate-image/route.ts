@@ -160,11 +160,35 @@ export async function POST(request: NextRequest) {
       }
 
       const result = JSON.parse(responseText);
-      const images = result.data || result.images || [];
-      const urls = images.map((img: { url: string }) => img.url).filter(Boolean);
+      console.log('📋 云雾API响应详情:', JSON.stringify(result, null, 2));
+      
+      // 尝试多种可能的响应结构
+      let urls: string[] = [];
+      
+      // 标准结构: result.data[].url
+      if (result.data && Array.isArray(result.data)) {
+        urls = result.data.map((img: { url: string }) => img.url).filter(Boolean);
+      }
+      
+      // 备用结构: result.images[].url
+      if (urls.length === 0 && result.images && Array.isArray(result.images)) {
+        urls = result.images.map((img: { url: string }) => img.url).filter(Boolean);
+      }
+      
+      // 备用结构: result.output[].url
+      if (urls.length === 0 && result.output && Array.isArray(result.output)) {
+        urls = result.output.map((img: { url: string }) => img.url).filter(Boolean);
+      }
+
+      // 备用结构: result.url (单张图片)
+      if (urls.length === 0 && typeof result.url === 'string') {
+        urls = [result.url];
+      }
+
+      console.log('🔍 提取到的图片URL:', urls);
 
       if (urls.length === 0) {
-        console.error('❌ 未生成任何图片');
+        console.error('❌ 未生成任何图片 - 响应结构:', JSON.stringify(Object.keys(result)));
         await refundPoints(user_id, COST_PER_IMAGE, '未生成任何图片');
         return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
