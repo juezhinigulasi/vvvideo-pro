@@ -305,8 +305,20 @@ export async function POST(request: NextRequest) {
           console.log('📊 API使用情况:', JSON.stringify(usage));
         }
         
+        // 将原始响应返回给前端用于调试
+        // 注意：生产环境应该移除这个调试信息
         await refundPoints(user_id, COST_PER_IMAGE, '未生成任何图片');
-        return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
+        return NextResponse.json({ 
+          error: '未生成任何图片',
+          debug: {
+            responseKeys: Object.keys(result),
+            hasData: !!result.data,
+            dataType: result.data ? typeof result.data : 'undefined',
+            isDataArray: Array.isArray(result.data),
+            dataSample: result.data ? JSON.stringify(result.data).substring(0, 1000) : 'undefined',
+            fullResponse: JSON.stringify(result).substring(0, 3000) // 返回完整响应的前3000字符
+          }
+        }, { status: 500 });
       }
 
       console.log('✅ 图片生成成功:', urls.length, '张图片');
