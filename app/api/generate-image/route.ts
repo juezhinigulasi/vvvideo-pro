@@ -171,16 +171,17 @@ export async function POST(request: NextRequest) {
         console.log('🔍 data数组长度:', result.data.length);
         if (result.data.length > 0) {
           console.log('🔍 data[0]的字段:', Object.keys(result.data[0]));
+          console.log('🔍 data[0]的完整内容:', JSON.stringify(result.data[0], null, 2));
         }
         // 尝试多种可能的URL字段名
         urls = result.data.map((img: Record<string, unknown>) => {
-          return (
-            (img as { url: string }).url ||
-            (img as { image_url: string }).image_url ||
-            (img as { imageUrl: string }).imageUrl ||
-            (img as { output_url: string }).output_url ||
-            ''
-          );
+          const url = (img as { url: string }).url ||
+                      (img as { image_url: string }).image_url ||
+                      (img as { imageUrl: string }).imageUrl ||
+                      (img as { output_url: string }).output_url ||
+                      '';
+          console.log('🔍 从data提取URL:', url);
+          return url;
         }).filter(Boolean);
       }
       
