@@ -128,7 +128,8 @@ export async function POST(request: NextRequest) {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    // 增加超时时间到5分钟（300秒），因为图片生成可能需要较长时间
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
       const response = await fetch(apiUrl, {
