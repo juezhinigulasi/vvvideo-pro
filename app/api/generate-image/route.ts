@@ -173,15 +173,32 @@ export async function POST(request: NextRequest) {
           console.log('🔍 data[0]的字段:', Object.keys(result.data[0]));
           console.log('🔍 data[0]的完整内容:', JSON.stringify(result.data[0], null, 2));
         }
-        // 尝试多种可能的URL字段名
-        urls = result.data.map((img: Record<string, unknown>) => {
-          const url = (img as { url: string }).url ||
-                      (img as { image_url: string }).image_url ||
-                      (img as { imageUrl: string }).imageUrl ||
-                      (img as { output_url: string }).output_url ||
+        
+        // 尝试多种可能的URL字段名，同时处理双层嵌套的data结构
+        urls = result.data.flatMap((item: Record<string, unknown>) => {
+          // 检查是否为双层嵌套结构: data[0].data[0].url
+          const nestedData = (item as { data: unknown[] }).data;
+          if (nestedData && Array.isArray(nestedData)) {
+            console.log('🔍 发现双层嵌套data结构，长度:', nestedData.length);
+            return nestedData.map((img) => {
+              const url = ((img as Record<string, unknown>) as { url: string }).url ||
+                          ((img as Record<string, unknown>) as { image_url: string }).image_url ||
+                          ((img as Record<string, unknown>) as { imageUrl: string }).imageUrl ||
+                          ((img as Record<string, unknown>) as { output_url: string }).output_url ||
+                          '';
+              console.log('🔍 从嵌套data提取URL:', url);
+              return url;
+            }).filter(Boolean);
+          }
+          
+          // 普通结构: data[0].url
+          const url = (item as { url: string }).url ||
+                      (item as { image_url: string }).image_url ||
+                      (item as { imageUrl: string }).imageUrl ||
+                      (item as { output_url: string }).output_url ||
                       '';
           console.log('🔍 从data提取URL:', url);
-          return url;
+          return url ? [url] : [];
         }).filter(Boolean);
       }
       
