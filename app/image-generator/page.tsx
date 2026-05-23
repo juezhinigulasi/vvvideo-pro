@@ -62,8 +62,24 @@ export default function ImageGenerator() {
     }
   };
 
+  const MAX_HISTORY_RECORDS = 10; // 最多保存10条记录
+
   const saveHistory = (history: GenerationRecord[]) => {
-    localStorage.setItem('yunwuai_generation_history', JSON.stringify(history));
+    try {
+      // 限制记录数量，避免 localStorage 溢出
+      const limitedHistory = history.slice(0, MAX_HISTORY_RECORDS);
+      localStorage.setItem('yunwuai_generation_history', JSON.stringify(limitedHistory));
+    } catch (error) {
+      console.warn('Failed to save history to localStorage:', error);
+      // 如果存储失败，尝试清空并重新保存
+      try {
+        localStorage.removeItem('yunwuai_generation_history');
+        const limitedHistory = history.slice(0, 5); // 只保存前5条
+        localStorage.setItem('yunwuai_generation_history', JSON.stringify(limitedHistory));
+      } catch (e) {
+        console.error('Failed to save history even after clearing:', e);
+      }
+    }
   };
 
   const ratios = ["9:16", "16:9", "1:1", "3:2", "2:3", "4:3"];
