@@ -199,6 +199,10 @@ export async function POST(request: NextRequest) {
               const strNestedItem = nestedItem as string;
               if (typeof strNestedItem === 'string') {
                 if (strNestedItem.startsWith('data:image/') || strNestedItem.length > 1000) {
+                  // 如果不是 data:image 开头，添加前缀
+                  if (!strNestedItem.startsWith('data:')) {
+                    return [`data:image/jpeg;base64,${strNestedItem}`];
+                  }
                   return [strNestedItem];
                 }
                 return [];
@@ -211,7 +215,25 @@ export async function POST(request: NextRequest) {
                           (nestedObj as { output_url: string }).output_url ||
                           '';
               console.log('🔍 从嵌套data提取URL:', url);
-              return url ? [url] : [];
+              
+              if (url) {
+                return [url];
+              }
+              
+              // 检查嵌套项中的Base64字段
+              const base64Fields = ['b64_json', 'data', 'image', 'imageData', 'base64', 'content'];
+              for (const field of base64Fields) {
+                const value = nestedObj[field] as string;
+                if (typeof value === 'string' && value.length > 1000) {
+                  console.log('🔍 从嵌套data项提取Base64数据，字段:', field, '长度:', value.length);
+                  // 如果不是 data:image 开头，添加前缀
+                  if (!value.startsWith('data:')) {
+                    return [`data:image/jpeg;base64,${value}`];
+                  }
+                  return [value];
+                }
+              }
+              return [];
             }).filter(Boolean);
           }
           
@@ -225,11 +247,15 @@ export async function POST(request: NextRequest) {
           
           // 检查是否包含 Base64 字段
           if (!url) {
-            const base64Fields = ['data', 'image', 'imageData', 'base64', 'content'];
+            const base64Fields = ['b64_json', 'data', 'image', 'imageData', 'base64', 'content'];
             for (const field of base64Fields) {
               const value = itemObj[field] as string;
-              if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
+              if (typeof value === 'string' && value.length > 1000) {
                 console.log('🔍 从data项提取Base64数据，字段:', field, '长度:', value.length);
+                // 如果不是 data:image 开头，添加前缀
+                if (!value.startsWith('data:')) {
+                  return [`data:image/jpeg;base64,${value}`];
+                }
                 return [value];
               }
             }
