@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     console.log('🌐 开始调用云雾API...');
     const apiUrl = 'https://yunwu.ai/v1/images/generations';
     const requestBody: Record<string, unknown> = {
-      model: model || 'gpt-image-2', // 切换到 gpt-image-2 模型，可能更稳定
+      model: model || 'gpt-image-2-all', // 切换回 gpt-image-2-all，使用标准响应格式
       prompt: prompt,
       size: size || '1024x1024',
       n: parseInt(String(n)) || 1, // 确保是数字类型
