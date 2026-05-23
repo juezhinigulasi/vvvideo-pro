@@ -228,18 +228,31 @@ export default function ImageGenerator() {
   };
 
   const handleDownload = (imageUrl: string) => {
-    // 使用后端代理API下载图片，避免CORS问题
-    const encodedUrl = encodeURIComponent(imageUrl);
-    const downloadUrl = `/api/download-image?url=${encodedUrl}`;
-    
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = `generated-image-${Date.now()}.png`;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // 判断是base64格式还是URL格式
+    if (imageUrl.startsWith('data:')) {
+      // base64格式：直接下载
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = `generated-image-${Date.now()}.png`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      // URL格式：使用后端代理API下载，避免CORS问题
+      const encodedUrl = encodeURIComponent(imageUrl);
+      const downloadUrl = `/api/download-image?url=${encodedUrl}`;
+      
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `generated-image-${Date.now()}.png`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
 
   const handleGenerate = async () => {
