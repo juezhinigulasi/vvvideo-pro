@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
       if (urls.length === 0) {
         console.error('❌ 未生成任何图片');
         console.error('❌ data数组内容:', result.data ? JSON.stringify(result.data) : 'undefined');
+        console.error('❌ 完整响应:', JSON.stringify(result));
         
         // 检查是否是内容安全问题（可能被拒绝生成）
         const usage = result.usage;
@@ -249,7 +250,12 @@ export async function POST(request: NextRequest) {
         }
         
         await refundPoints(user_id, COST_PER_IMAGE, '未生成任何图片');
-        return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
+        // 返回原始响应给前端，帮助诊断
+        return NextResponse.json({ 
+          error: '未生成任何图片',
+          rawResponse: result,
+          responseKeys: Object.keys(result)
+        }, { status: 500 });
       }
 
       console.log('✅ 图片生成成功:', urls.length, '张图片');
