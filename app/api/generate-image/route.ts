@@ -236,12 +236,45 @@ export async function POST(request: NextRequest) {
         urls = [result.output_url];
       }
 
-      console.log('🔍 最终提取到的图片URL:', urls);
+      // 检查是否返回了 Base64 编码的图片数据
+      // 云雾API可能直接返回 Base64 数据而不是 URL
+      if (urls.length === 0) {
+        console.log('🔍 尝试提取 Base64 图片数据...');
+        
+        // 检查 data 数组中是否包含 Base64 数据
+        if (result.data && Array.isArray(result.data)) {
+          for (const item of result.data) {
+            const itemObj = item as Record<string, unknown>;
+            // 检查各种可能的 Base64 字段名
+            const base64Fields = ['data', 'image', 'imageData', 'base64', 'content'];
+            for (const field of base64Fields) {
+              const value = itemObj[field];
+              if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
+                console.log('🔍 发现 Base64 图片数据，长度:', value.length);
+                urls.push(value);
+              }
+            }
+          }
+        }
+        
+        // 检查顶层是否有 Base64 数据
+        if (urls.length === 0) {
+          const topLevelFields = ['data', 'image', 'imageData', 'base64', 'content'];
+          for (const field of topLevelFields) {
+            const value = (result as Record<string, unknown>)[field];
+            if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
+              console.log('🔍 在顶层发现 Base64 图片数据，长度:', value.length);
+              urls.push(value);
+            }
+          }
+        }
+      }
+
+      console.log('🔍 最终提取到的图片URL/Base64:', urls.length > 0 ? `共${urls.length}张` : '无');
 
       if (urls.length === 0) {
         console.error('❌ 未生成任何图片');
-        console.error('❌ data数组内容:', result.data ? JSON.stringify(result.data) : 'undefined');
-        console.error('❌ 完整响应:', JSON.stringify(result));
+        console.error('❌ data数组内容:', result.data ? JSON.stringify(result.data).substring(0, 500) + '...' : 'undefined');
         
         // 检查是否是内容安全问题（可能被拒绝生成）
         const usage = result.usage;
@@ -250,12 +283,7 @@ export async function POST(request: NextRequest) {
         }
         
         await refundPoints(user_id, COST_PER_IMAGE, '未生成任何图片');
-        // 返回原始响应给前端，帮助诊断
-        return NextResponse.json({ 
-          error: '未生成任何图片',
-          rawResponse: result,
-          responseKeys: Object.keys(result)
-        }, { status: 500 });
+        return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
 
       console.log('✅ 图片生成成功:', urls.length, '张图片');
