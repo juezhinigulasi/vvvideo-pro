@@ -167,17 +167,42 @@ export async function POST(request: NextRequest) {
       
       // 标准结构: result.data[].url
       if (result.data && Array.isArray(result.data)) {
-        urls = result.data.map((img: { url: string }) => img.url).filter(Boolean);
+        console.log('🔍 data数组长度:', result.data.length);
+        if (result.data.length > 0) {
+          console.log('🔍 data[0]的字段:', Object.keys(result.data[0]));
+        }
+        // 尝试多种可能的URL字段名
+        urls = result.data.map((img: Record<string, unknown>) => {
+          return (
+            (img as { url: string }).url ||
+            (img as { image_url: string }).image_url ||
+            (img as { imageUrl: string }).imageUrl ||
+            (img as { output_url: string }).output_url ||
+            ''
+          );
+        }).filter(Boolean);
       }
       
       // 备用结构: result.images[].url
       if (urls.length === 0 && result.images && Array.isArray(result.images)) {
-        urls = result.images.map((img: { url: string }) => img.url).filter(Boolean);
+        urls = result.images.map((img: Record<string, unknown>) => {
+          return (
+            (img as { url: string }).url ||
+            (img as { image_url: string }).image_url ||
+            ''
+          );
+        }).filter(Boolean);
       }
       
       // 备用结构: result.output[].url
       if (urls.length === 0 && result.output && Array.isArray(result.output)) {
-        urls = result.output.map((img: { url: string }) => img.url).filter(Boolean);
+        urls = result.output.map((img: Record<string, unknown>) => {
+          return (
+            (img as { url: string }).url ||
+            (img as { image_url: string }).image_url ||
+            ''
+          );
+        }).filter(Boolean);
       }
 
       // 备用结构: result.url (单张图片)
@@ -185,10 +210,23 @@ export async function POST(request: NextRequest) {
         urls = [result.url];
       }
 
-      console.log('🔍 提取到的图片URL:', urls);
+      // 备用结构: result.output_url
+      if (urls.length === 0 && typeof result.output_url === 'string') {
+        urls = [result.output_url];
+      }
+
+      console.log('🔍 最终提取到的图片URL:', urls);
 
       if (urls.length === 0) {
-        console.error('❌ 未生成任何图片 - 响应结构:', JSON.stringify(Object.keys(result)));
+        console.error('❌ 未生成任何图片');
+        console.error('❌ data数组内容:', result.data ? JSON.stringify(result.data) : 'undefined');
+        
+        // 检查是否是内容安全问题（可能被拒绝生成）
+        const usage = result.usage;
+        if (usage) {
+          console.log('📊 API使用情况:', JSON.stringify(usage));
+        }
+        
         await refundPoints(user_id, COST_PER_IMAGE, '未生成任何图片');
         return NextResponse.json({ error: '未生成任何图片' }, { status: 500 });
       }
