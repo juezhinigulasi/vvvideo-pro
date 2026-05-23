@@ -172,57 +172,100 @@ export async function POST(request: NextRequest) {
       if (result.data && Array.isArray(result.data)) {
         console.log('🔍 data数组长度:', result.data.length);
         if (result.data.length > 0) {
-          console.log('🔍 data[0]的字段:', Object.keys(result.data[0]));
+          console.log('🔍 data[0]的类型:', typeof result.data[0]);
+          console.log('🔍 data[0]的字段:', typeof result.data[0] === 'object' ? Object.keys(result.data[0]) : '不是对象');
           console.log('🔍 data[0]的完整内容:', JSON.stringify(result.data[0], null, 2));
         }
         
         // 尝试多种可能的URL字段名，同时处理双层嵌套的data结构
-        urls = result.data.flatMap((item: Record<string, unknown>) => {
+        urls = result.data.flatMap((item: unknown) => {
+          const strItem = item as string;
+          // 检查是否为字符串类型（可能是 Base64 直接返回）
+          if (typeof strItem === 'string') {
+            if (strItem.startsWith('data:image/') || strItem.length > 1000) {
+              console.log('🔍 data数组中发现字符串类型的Base64数据，长度:', strItem.length);
+              return [strItem];
+            }
+            return [];
+          }
+          
+          const itemObj = item as Record<string, unknown>;
           // 检查是否为双层嵌套结构: data[0].data[0].url
-          const nestedData = (item as { data: unknown[] }).data;
+          const nestedData = (itemObj as { data: unknown[] }).data;
           if (nestedData && Array.isArray(nestedData)) {
             console.log('🔍 发现双层嵌套data结构，长度:', nestedData.length);
-            return nestedData.map((img) => {
-              const url = ((img as Record<string, unknown>) as { url: string }).url ||
-                          ((img as Record<string, unknown>) as { image_url: string }).image_url ||
-                          ((img as Record<string, unknown>) as { imageUrl: string }).imageUrl ||
-                          ((img as Record<string, unknown>) as { output_url: string }).output_url ||
+            return nestedData.flatMap((nestedItem: unknown) => {
+              // 嵌套项也可能是字符串类型
+              const strNestedItem = nestedItem as string;
+              if (typeof strNestedItem === 'string') {
+                if (strNestedItem.startsWith('data:image/') || strNestedItem.length > 1000) {
+                  return [strNestedItem];
+                }
+                return [];
+              }
+              
+              const nestedObj = nestedItem as Record<string, unknown>;
+              const url = (nestedObj as { url: string }).url ||
+                          (nestedObj as { image_url: string }).image_url ||
+                          (nestedObj as { imageUrl: string }).imageUrl ||
+                          (nestedObj as { output_url: string }).output_url ||
                           '';
               console.log('🔍 从嵌套data提取URL:', url);
-              return url;
+              return url ? [url] : [];
             }).filter(Boolean);
           }
           
           // 普通结构: data[0].url
-          const url = (item as { url: string }).url ||
-                      (item as { image_url: string }).image_url ||
-                      (item as { imageUrl: string }).imageUrl ||
-                      (item as { output_url: string }).output_url ||
+          const url = (itemObj as { url: string }).url ||
+                      (itemObj as { image_url: string }).image_url ||
+                      (itemObj as { imageUrl: string }).imageUrl ||
+                      (itemObj as { output_url: string }).output_url ||
                       '';
           console.log('🔍 从data提取URL:', url);
+          
+          // 检查是否包含 Base64 字段
+          if (!url) {
+            const base64Fields = ['data', 'image', 'imageData', 'base64', 'content'];
+            for (const field of base64Fields) {
+              const value = itemObj[field] as string;
+              if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
+                console.log('🔍 从data项提取Base64数据，字段:', field, '长度:', value.length);
+                return [value];
+              }
+            }
+          }
+          
           return url ? [url] : [];
         }).filter(Boolean);
       }
       
       // 备用结构: result.images[].url
       if (urls.length === 0 && result.images && Array.isArray(result.images)) {
-        urls = result.images.map((img: Record<string, unknown>) => {
-          return (
-            (img as { url: string }).url ||
-            (img as { image_url: string }).image_url ||
-            ''
-          );
+        urls = result.images.flatMap((img: unknown) => {
+          const strImg = img as string;
+          if (typeof strImg === 'string') {
+            return (strImg.startsWith('data:image/') || strImg.length > 1000) ? [strImg] : [];
+          }
+          const imgObj = img as Record<string, unknown>;
+          const url = (imgObj as { url: string }).url ||
+                      (imgObj as { image_url: string }).image_url ||
+                      '';
+          return url ? [url] : [];
         }).filter(Boolean);
       }
       
       // 备用结构: result.output[].url
       if (urls.length === 0 && result.output && Array.isArray(result.output)) {
-        urls = result.output.map((img: Record<string, unknown>) => {
-          return (
-            (img as { url: string }).url ||
-            (img as { image_url: string }).image_url ||
-            ''
-          );
+        urls = result.output.flatMap((img: unknown) => {
+          const strImg = img as string;
+          if (typeof strImg === 'string') {
+            return (strImg.startsWith('data:image/') || strImg.length > 1000) ? [strImg] : [];
+          }
+          const imgObj = img as Record<string, unknown>;
+          const url = (imgObj as { url: string }).url ||
+                      (imgObj as { image_url: string }).image_url ||
+                      '';
+          return url ? [url] : [];
         }).filter(Boolean);
       }
 
@@ -236,36 +279,15 @@ export async function POST(request: NextRequest) {
         urls = [result.output_url];
       }
 
-      // 检查是否返回了 Base64 编码的图片数据
-      // 云雾API可能直接返回 Base64 数据而不是 URL
+      // 检查顶层是否有 Base64 数据
       if (urls.length === 0) {
-        console.log('🔍 尝试提取 Base64 图片数据...');
-        
-        // 检查 data 数组中是否包含 Base64 数据
-        if (result.data && Array.isArray(result.data)) {
-          for (const item of result.data) {
-            const itemObj = item as Record<string, unknown>;
-            // 检查各种可能的 Base64 字段名
-            const base64Fields = ['data', 'image', 'imageData', 'base64', 'content'];
-            for (const field of base64Fields) {
-              const value = itemObj[field];
-              if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
-                console.log('🔍 发现 Base64 图片数据，长度:', value.length);
-                urls.push(value);
-              }
-            }
-          }
-        }
-        
-        // 检查顶层是否有 Base64 数据
-        if (urls.length === 0) {
-          const topLevelFields = ['data', 'image', 'imageData', 'base64', 'content'];
-          for (const field of topLevelFields) {
-            const value = (result as Record<string, unknown>)[field];
-            if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
-              console.log('🔍 在顶层发现 Base64 图片数据，长度:', value.length);
-              urls.push(value);
-            }
+        console.log('🔍 检查顶层 Base64 数据...');
+        const topLevelFields = ['data', 'image', 'imageData', 'base64', 'content', 'result'];
+        for (const field of topLevelFields) {
+          const value = (result as Record<string, unknown>)[field];
+          if (typeof value === 'string' && (value.startsWith('data:image/') || value.length > 1000)) {
+            console.log('🔍 在顶层发现 Base64 图片数据，字段:', field, '长度:', value.length);
+            urls.push(value);
           }
         }
       }
@@ -274,6 +296,7 @@ export async function POST(request: NextRequest) {
 
       if (urls.length === 0) {
         console.error('❌ 未生成任何图片');
+        console.error('❌ 完整响应结构:', JSON.stringify(Object.keys(result)));
         console.error('❌ data数组内容:', result.data ? JSON.stringify(result.data).substring(0, 500) + '...' : 'undefined');
         
         // 检查是否是内容安全问题（可能被拒绝生成）
