@@ -162,6 +162,8 @@ export async function POST(request: NextRequest) {
 
       const result = JSON.parse(responseText);
       console.log('📋 云雾API响应详情:', JSON.stringify(result, null, 2));
+      console.log('📋 响应类型:', typeof result);
+      console.log('📋 响应所有键:', Object.keys(result));
       
       // 尝试多种可能的响应结构
       let urls: string[] = [];
