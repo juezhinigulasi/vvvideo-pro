@@ -718,7 +718,7 @@ export default function ImageGenerator() {
                             </svg>
                           </button>
 
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3">
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 z-20">
                             {record.status === 'success' && record.images.length > 0 && (
                               <>
                                 <button
@@ -742,7 +742,7 @@ export default function ImageGenerator() {
                             )}
                           </div>
 
-                          <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1A1C1E]/95 to-transparent">
+                          <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#1A1C1E]/95 to-transparent z-10">
                             <div className="flex items-center gap-2 mb-3">
                               {record.status === 'generating' && (
                                 <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 text-xs rounded">生成中</span>
