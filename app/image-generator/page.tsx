@@ -718,12 +718,12 @@ export default function ImageGenerator() {
                             </svg>
                           </button>
 
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all duration-300 flex justify-center gap-3 z-20" style={{ paddingBottom: '80px' }}>
+                          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-3/4 opacity-0 group-hover:opacity-100 transition-all duration-300 flex gap-3 z-20">
                             {record.status === 'success' && record.images.length > 0 && (
                               <>
                                 <button
                                   onClick={() => setSelectedImage(record.images[0])}
-                                  className="mt-8 p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
+                                  className="p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
                                 >
                                   <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -732,7 +732,7 @@ export default function ImageGenerator() {
                                 </button>
                                 <button
                                   onClick={() => handleDownload(record.images[0])}
-                                  className="mt-8 p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
+                                  className="p-2.5 bg-[#222428] hover:bg-[#2A2C2E] rounded-full transition-all duration-300 border border-white/10"
                                 >
                                   <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
