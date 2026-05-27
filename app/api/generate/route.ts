@@ -320,13 +320,15 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
         console.log('🔍 尝试提取视频URL...');
         console.log('   - result.url:', result.url);
         console.log('   - result.videoUrl:', result.videoUrl);
-        console.log('   - result.result:', result.result);
+        console.log('   - result.results:', result.results);
         console.log('   - result.data:', result.data);
         
         const videoUrl = 
           result.url || 
           result.videoUrl || 
-          (result.result?.[0]?.url) ||
+          (result.results?.[0]?.url) ||      // 注意：是 results 复数！
+          (result.results?.[0]?.videoUrl) ||
+          (result.result?.[0]?.url) ||       // 兼容单数形式
           (result.result?.[0]?.videoUrl) ||
           (result.data?.url) ||
           (result.data?.videoUrl) ||
