@@ -26,7 +26,7 @@ interface ModelConfig {
 
 const MODELS: ModelConfig[] = [
   { id: 'grok-video-3-10s', name: 'Grok 3', duration: 10, cost: 3 },
-  { id: 'grok-backup', name: 'grok备用(暂不可用)', duration: 10, cost: 3 },
+  { id: 'grok-backup', name: 'grok3(备用)', duration: 10, cost: 3 },
   { id: 'veo', name: 'VEO', duration: 8, cost: 3 },
   { id: 'veo-4k', name: 'VEO 4K', duration: 8, cost: 3 },
 ];
