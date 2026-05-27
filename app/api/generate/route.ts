@@ -262,13 +262,15 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
     // 根据模型类型选择不同的查询方式
     if (isRunningHubModel(model)) {
       // Running Hub使用POST请求查询
+      const runningHubBody = { taskId: id };
+      console.log('📤 Running Hub查询请求体:', JSON.stringify(runningHubBody));
       response = await fetch('https://www.runninghub.cn/openapi/v2/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ taskId: id }),
+        body: JSON.stringify(runningHubBody),
         signal: controller.signal,
       });
     } else {
@@ -288,30 +290,49 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
     console.log('📥 轮询响应内容:', responseText.substring(0, 300) + '...');
 
     if (!response.ok) {
-      console.error('❌ 轮询任务状态失败:', response.status, responseText);
+      console.error('❌ 轮询任务状态失败:', response.status);
+      console.error('❌ 完整错误响应:', responseText);
       let errorMessage = '查询任务状态失败';
       try {
         const errorJson = JSON.parse(responseText);
-        errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
-      } catch {}
+        console.error('❌ 解析后的错误JSON:', JSON.stringify(errorJson, null, 2));
+        errorMessage = errorJson.error?.message || errorJson.message || errorJson.msg || errorMessage;
+      } catch (parseError) {
+        console.error('❌ 解析错误响应失败:', parseError);
+        errorMessage = responseText || errorMessage;
+      }
       return NextResponse.json({ error: errorMessage }, { status: response.status });
     }
 
     const result = JSON.parse(responseText);
     
-    console.log('📋 API原始响应:', JSON.stringify(result));
+    console.log('📋 API原始响应:', JSON.stringify(result, null, 2));
     console.log('📋 API状态:', result.status);
+    console.log('📋 API响应类型:', typeof result);
+    console.log('📋 API响应所有键:', result && typeof result === 'object' ? Object.keys(result) : 'N/A');
     
     // 处理Running Hub成功状态
     if (isRunningHubModel(model)) {
-      if (result.status === 'SUCCESS') {
-        // Running Hub从result数组或url字段提取视频URL
+      console.log('🔍 检测到Running Hub模型，状态:', result.status);
+      
+      if (result.status === 'SUCCESS' || result.status === 'success' || result.status === 'completed') {
+        // Running Hub从多个可能的字段提取视频URL
+        console.log('🔍 尝试提取视频URL...');
+        console.log('   - result.url:', result.url);
+        console.log('   - result.videoUrl:', result.videoUrl);
+        console.log('   - result.result:', result.result);
+        console.log('   - result.data:', result.data);
+        
         const videoUrl = 
           result.url || 
           result.videoUrl || 
           (result.result?.[0]?.url) ||
-          (result.result?.[0]?.videoUrl);
-        console.log('✅ Running Hub视频生成完成，URL:', videoUrl);
+          (result.result?.[0]?.videoUrl) ||
+          (result.data?.url) ||
+          (result.data?.videoUrl) ||
+          (result.output?.url) ||
+          (result.output?.videoUrl);
+        console.log('✅ Running Hub视频生成完成，提取到的URL:', videoUrl);
         
         if (!videoUrl) {
           console.error('❌ 视频生成成功但未返回视频URL');
