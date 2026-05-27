@@ -291,12 +291,17 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
 
     if (!response.ok) {
       console.error('❌ 轮询任务状态失败:', response.status);
+      console.error('❌ 请求URL:', 'https://www.runninghub.cn/openapi/v2/query');
+      console.error('❌ 请求体:', JSON.stringify(runningHubBody));
+      console.error('❌ API密钥是否存在:', !!apiKey);
+      console.error('❌ API密钥长度:', apiKey ? apiKey.length : 0);
       console.error('❌ 完整错误响应:', responseText);
+      console.error('❌ 响应头:', JSON.stringify(Object.fromEntries(response.headers)));
       let errorMessage = '查询任务状态失败';
       try {
         const errorJson = JSON.parse(responseText);
         console.error('❌ 解析后的错误JSON:', JSON.stringify(errorJson, null, 2));
-        errorMessage = errorJson.error?.message || errorJson.message || errorJson.msg || errorMessage;
+        errorMessage = errorJson.error?.message || errorJson.message || errorJson.msg || errorJson.Error || errorMessage;
       } catch (parseError) {
         console.error('❌ 解析错误响应失败:', parseError);
         errorMessage = responseText || errorMessage;
