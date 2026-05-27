@@ -90,7 +90,7 @@ export default function Home() {
     if (pendingTasks.length > 0) {
       for (const task of pendingTasks) {
         if (!pollingIntervalsRef.current[task.id]) {
-          pollTask(task.taskId!, task.id);
+          pollTask(task.taskId!, task.id, task.model);
         }
       }
     }
@@ -168,7 +168,7 @@ export default function Home() {
     reader.readAsDataURL(file);
   }, []);
 
-  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number) => {
+  const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number, model: string) => {
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskIdNum ? { ...t, status: 'processing' as TaskStatus } : t
     ));
@@ -179,12 +179,12 @@ export default function Home() {
     const pollInterval = setInterval(async () => {
       try {
         pollCount++;
-        console.log(`[前端轮询] 第 ${pollCount} 次轮询，任务ID: ${taskIdStr}`);
+        console.log(`[前端轮询] 第 ${pollCount} 次轮询，任务ID: ${taskIdStr}，模型: ${model}`);
 
         const pollResponse = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: taskIdStr, poll: true }),
+          body: JSON.stringify({ id: taskIdStr, poll: true, model }),
         });
 
         const pollText = await pollResponse.text();
@@ -406,7 +406,7 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, taskId: idStr } : t
         ));
-        pollTask(idStr, taskId);
+        pollTask(idStr, taskId, model);
       } else {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
