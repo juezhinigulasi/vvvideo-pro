@@ -4,6 +4,7 @@ import { getSupabaseServer } from '@/app/lib/supabase-server';
 
 const GROK_API_KEY = process.env.GROK_API_KEY || '';
 const VEO_API_KEY = process.env.VEO_API_KEY || '';
+const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY || '';
 const COST_PER_VIDEO = 3;
 
 // 模型映射：前端模型 -> 云雾API模型
@@ -18,10 +19,18 @@ const isVeoModel = (model: string): boolean => {
   return model === 'veo' || model === 'veo-4k' || model?.startsWith('veo');
 };
 
+// 判断是否为Running Hub模型
+const isRunningHubModel = (model: string): boolean => {
+  return model === 'grok-backup';
+};
+
 // 获取当前模型对应的API密钥
 const getApiKey = (model: string): string => {
   if (isVeoModel(model)) {
     return VEO_API_KEY;
+  }
+  if (isRunningHubModel(model)) {
+    return RUNNINGHUB_API_KEY;
   }
   return GROK_API_KEY;
 };
@@ -136,10 +145,21 @@ export async function POST(request: Request) {
     console.log('📋 使用模型:', apiModel, '(前端模型:', model, ')');
     
     // 根据模型类型构建请求体
-    // VEO模型使用新API格式，Grok模型使用原有格式
+    // VEO模型使用新API格式，Grok模型使用原有格式，Running Hub使用自己的格式
     let requestBody: Record<string, unknown>;
+    let apiUrl = 'https://yunwu.ai/v1/video/create'; // 默认云雾API
     
-    if (isVeoModel(model || '')) {
+    if (isRunningHubModel(model || '')) {
+      // Running Hub模型：使用image-to-video接口格式
+      apiUrl = 'https://www.runninghub.cn/openapi/v2/rhart-video-g/image-to-video';
+      requestBody = {
+        prompt: prompt,
+        imageUrls: input_reference ? [input_reference.trim()] : [],
+        aspectRatio: aspect_ratio || '16:9',
+        resolution: '720p',
+        duration: duration || 10,
+      };
+    } else if (isVeoModel(model || '')) {
       // VEO系列模型：使用新API格式
       requestBody = {
         model: apiModel,
@@ -166,7 +186,7 @@ export async function POST(request: Request) {
     const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
-      const response = await fetch('https://yunwu.ai/v1/video/create', {
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -195,6 +215,12 @@ export async function POST(request: Request) {
 
       const result = JSON.parse(responseText);
       
+      // Running Hub直接返回taskId，状态为QUEUED/RUNNING/SUCCESS/FAILED
+      if (isRunningHubModel(model || '') && result.taskId) {
+        console.log('✅ Running Hub任务已创建, task_id:', result.taskId);
+        return NextResponse.json({ status: 'pending', id: result.taskId });
+      }
+
       if (result.status === 'completed' && result.video_url) {
         console.log('✅ 视频生成成功');
         return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
@@ -231,14 +257,30 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
   const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    // 使用 GET 请求，参数通过 Query String 传递
-    const response = await fetch(`https://yunwu.ai/v1/video/query?id=${encodeURIComponent(id)}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      signal: controller.signal,
-    });
+    let response;
+    
+    // 根据模型类型选择不同的查询方式
+    if (isRunningHubModel(model)) {
+      // Running Hub使用POST请求查询
+      response = await fetch('https://www.runninghub.cn/openapi/v2/query', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ taskId: id }),
+        signal: controller.signal,
+      });
+    } else {
+      // 云雾API使用GET请求
+      response = await fetch(`https://yunwu.ai/v1/video/query?id=${encodeURIComponent(id)}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+      });
+    }
 
     clearTimeout(timeoutId);
     const responseText = await response.text();
@@ -257,12 +299,59 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
 
     const result = JSON.parse(responseText);
     
-    console.log('📋 云雾API原始响应:', JSON.stringify(result));
+    console.log('📋 API原始响应:', JSON.stringify(result));
+    console.log('📋 API状态:', result.status);
     
-    // 统一返回格式，确保与前端期望一致
-    console.log('📋 云雾API状态:', result.status);
+    // 处理Running Hub成功状态
+    if (isRunningHubModel(model)) {
+      if (result.status === 'SUCCESS') {
+        // Running Hub从result数组或url字段提取视频URL
+        const videoUrl = 
+          result.url || 
+          result.videoUrl || 
+          (result.result?.[0]?.url) ||
+          (result.result?.[0]?.videoUrl);
+        console.log('✅ Running Hub视频生成完成，URL:', videoUrl);
+        
+        if (!videoUrl) {
+          console.error('❌ 视频生成成功但未返回视频URL');
+          await refundPoints(userId, COST_PER_VIDEO, '视频生成成功但未返回URL');
+          return NextResponse.json({ 
+            status: 'failed', 
+            error: '视频生成成功但未返回视频URL',
+            refunded: true 
+          });
+        }
+        
+        return NextResponse.json({
+          status: 'completed',
+          video_url: videoUrl,
+        });
+      }
+      
+      // Running Hub失败状态
+      if (result.status === 'FAILED') {
+        const errorMsg = result.failReason || result.error || result.message || `视频生成失败: ${result.status}`;
+        console.log('❌ Running Hub视频生成失败:', errorMsg);
+        await refundPoints(userId, COST_PER_VIDEO, errorMsg);
+        return NextResponse.json({
+          status: 'failed',
+          error: errorMsg,
+          refunded: true,
+        });
+      }
+      
+      // Running Hub进行中状态
+      if (result.status === 'QUEUED' || result.status === 'RUNNING') {
+        console.log('⏳ Running Hub任务进行中，当前状态:', result.status);
+        return NextResponse.json({
+          status: 'processing',
+          current_status: result.status,
+        });
+      }
+    }
     
-    // 处理成功状态
+    // 处理云雾API成功状态
     if (result.status === 'completed' || result.status === 'success' || result.status === 'succeeded') {
       // 从多个可能的字段提取视频URL
       const videoUrl = 
