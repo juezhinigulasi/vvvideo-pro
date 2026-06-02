@@ -150,7 +150,59 @@ export default function Home() {
     ));
   }, []);
 
-  const handleFileSelect = useCallback((taskId: number, file: File | null) => {
+  const compressImage = async (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const MAX_SIZE = 2 * 1024 * 1024;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          let width = img.width;
+          let height = img.height;
+          
+          const maxDimension = 1920;
+          if (width > maxDimension || height > maxDimension) {
+            const ratio = Math.min(maxDimension / width, maxDimension / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            resolve(event.target?.result as string);
+            return;
+          }
+          
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          let currentQuality = 0.9;
+          const compressStep = 0.1;
+          
+          const tryCompress = () => {
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', currentQuality);
+            const compressedSize = compressedDataUrl.length * 0.75;
+            
+            if (compressedSize > MAX_SIZE && currentQuality > 0.1) {
+              currentQuality -= compressStep;
+              tryCompress();
+            } else {
+              resolve(compressedDataUrl);
+            }
+          };
+          
+          tryCompress();
+        };
+        img.src = event.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileSelect = useCallback(async (taskId: number, file: File | null) => {
     if (!file) return;
 
     const previewUrl = URL.createObjectURL(file);
@@ -158,14 +210,21 @@ export default function Home() {
       t.id === taskId ? { ...t, imagePreview: previewUrl } : t
     ));
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
+    if (file.size > 2 * 1024 * 1024) {
+      const compressedBase64 = await compressImage(file);
       setTasks(prevTasks => prevTasks.map(t =>
-        t.id === taskId ? { ...t, imageUrl: base64 } : t
+        t.id === taskId ? { ...t, imageUrl: compressedBase64 } : t
       ));
-    };
-    reader.readAsDataURL(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string;
+        setTasks(prevTasks => prevTasks.map(t =>
+          t.id === taskId ? { ...t, imageUrl: base64 } : t
+        ));
+      };
+      reader.readAsDataURL(file);
+    }
   }, []);
 
   const pollTask = useCallback(async (taskIdStr: string, taskIdNum: number, model: string) => {
