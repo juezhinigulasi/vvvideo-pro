@@ -308,7 +308,7 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
               <span className="text-[#E5E5E5] text-sm">{user ? (user.user_metadata?.username || user.email?.split('@')[0]) : '未登录'}</span>
             </button>
 
-            <div className={`user-menu-container absolute right-0 top-full mt-3 w-56 bg-[#222428] rounded-2xl shadow-xl border border-white/10 overflow-hidden transition-all duration-300 ${showUserMenu ? 'opacity-100 visible' : 'opacity-0 invisible'} group-hover:opacity-100 group-hover:visible`} style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)' }}>
+            <div className={`user-menu-container absolute right-0 top-full mt-3 w-56 bg-[#222428] rounded-2xl shadow-xl border border-white/10 overflow-hidden transition-all duration-300 ${showUserMenu ? 'opacity-100 visible' : 'opacity-0 invisible'} group-hover:opacity-100 group-hover:visible`} style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)', marginBottom: '120px', zIndex: 100 }}>
               <div className="p-3">
                 {user ? (
                   <>
