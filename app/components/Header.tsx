@@ -13,6 +13,7 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
   const [showLogin, setShowLogin] = useState(false);
   const [showCardRedeem, setShowCardRedeem] = useState(false);
   const [showPersonalCenter, setShowPersonalCenter] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [cardCode, setCardCode] = useState('');
   const [credits, setCredits] = useState(externalCredits || 0);
@@ -47,6 +48,24 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const userMenu = document.querySelector('.user-menu-container');
+      if (userMenu && !userMenu.contains(target)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showUserMenu]);
 
   useEffect(() => {
     if (externalCredits !== undefined) {
@@ -282,14 +301,14 @@ export default function Header({ credits: externalCredits, costPerVideo }: Heade
           </div>
 
           <div className="relative group">
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-[#222428] rounded-full transition-all duration-300 hover:bg-[#2A2C2E]" style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-2 px-4 py-2.5 bg-[#222428] rounded-full transition-all duration-300 hover:bg-[#2A2C2E]" style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}>
               <svg className="w-5 h-5 text-[#E5E5E5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
               <span className="text-[#E5E5E5] text-sm">{user ? (user.user_metadata?.username || user.email?.split('@')[0]) : '未登录'}</span>
             </button>
 
-            <div className="absolute right-0 top-full mt-3 w-56 bg-[#222428] rounded-2xl shadow-xl border border-white/10 overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300" style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)' }}>
+            <div className={`user-menu-container absolute right-0 top-full mt-3 w-56 bg-[#222428] rounded-2xl shadow-xl border border-white/10 overflow-hidden transition-all duration-300 ${showUserMenu ? 'opacity-100 visible' : 'opacity-0 invisible'} group-hover:opacity-100 group-hover:visible`} style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)' }}>
               <div className="p-3">
                 {user ? (
                   <>
