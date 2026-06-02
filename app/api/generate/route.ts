@@ -503,3 +503,11 @@ async function refundPoints(userId: string, amount: number, reason: string) {
     console.error('❌ 积分返还异常:', e);
   }
 }
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '20mb',
+    },
+  },
+};
