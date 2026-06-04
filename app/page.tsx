@@ -68,8 +68,9 @@ export default function Home() {
 
   const [credits, setCredits] = useState(0);
 
-  const pollingIntervalsRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+  const pollingIntervalsRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const fileInputRef = useRef<Record<number, HTMLInputElement | null>>({});
+  const alertShownRef = useRef<Record<number, boolean>>({}); // 跟踪哪些任务已经弹出过警告
 
   useEffect(() => {
     loadUserCredits();
@@ -321,15 +322,21 @@ export default function Home() {
             (window as any).refreshUserCredits();
           }
         } else if (pollResult.status === 'failed') {
-          // 立即清除定时器，防止继续轮询
-          if (pollingIntervalsRef.current[taskIdNum]) {
-            clearTimeout(pollingIntervalsRef.current[taskIdNum]);
-          }
-          pollingIntervalsRef.current[taskIdNum] = null as any;
-          setTasks(prevTasks => prevTasks.map(t =>
-            t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
-          ));
+        // 立即清除定时器，防止继续轮询
+        if (pollingIntervalsRef.current[taskIdNum]) {
+          clearTimeout(pollingIntervalsRef.current[taskIdNum]);
+        }
+        pollingIntervalsRef.current[taskIdNum] = null as any;
+        setTasks(prevTasks => prevTasks.map(t =>
+          t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
+        ));
+        // 检查是否已经弹出过警告
+        if (!alertShownRef.current[taskIdNum]) {
+          alertShownRef.current[taskIdNum] = true; // 标记为已弹出
           alert(`视频生成失败:\n${pollResult.error || '未知错误'}`);
+        } else {
+          console.log(`[警告跳过] 任务 ${taskIdNum} 已经弹出过警告，不再重复弹出`);
+        }
         } else if (pollCount >= maxPollCount) {
           // 立即清除定时器，防止继续轮询
           if (pollingIntervalsRef.current[taskIdNum]) {
@@ -420,6 +427,8 @@ export default function Home() {
       alert('请输入提示词');
       return;
     }
+    // 重置警告标记，因为用户重新生成了
+    alertShownRef.current[taskId] = false;
 
     const modelConfig = getCurrentModelConfig();
 
@@ -479,7 +488,10 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
         ));
-        alert(`请求失败 (${response.status}):\n${errorDetail}`);
+        if (!alertShownRef.current[taskId]) {
+          alertShownRef.current[taskId] = true;
+          alert(`请求失败 (${response.status}):\n${errorDetail}`);
+        }
         return;
       }
 
@@ -499,7 +511,10 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'failed' as TaskStatus } : t
         ));
-        alert(`视频生成失败:\n${data.error}`);
+        if (!alertShownRef.current[taskId]) {
+          alertShownRef.current[taskId] = true;
+          alert(`视频生成失败:\n${data.error}`);
+        }
       } else if (data.id) {
         const idStr = data.id;
         setTasks(prevTasks => prevTasks.map(t =>
@@ -510,19 +525,29 @@ export default function Home() {
         setTasks(prevTasks => prevTasks.map(t =>
           t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
         ));
-        alert('未获取到任务ID');
+        if (!alertShownRef.current[taskId]) {
+          alertShownRef.current[taskId] = true;
+          alert('未获取到任务ID');
+        }
       }
     } catch (error) {
       setTasks(prevTasks => prevTasks.map(t =>
         t.id === taskId ? { ...t, status: 'error' as TaskStatus } : t
       ));
-      alert(`请求失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      if (!alertShownRef.current[taskId]) {
+        alertShownRef.current[taskId] = true;
+        alert(`请求失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      }
     }
   }, [tasks, globalConfig, pollTask]);
 
   useEffect(() => {
     return () => {
-      Object.values(pollingIntervalsRef.current).forEach(interval => clearInterval(interval));
+      Object.values(pollingIntervalsRef.current).forEach(interval => {
+        if (interval) {
+          clearTimeout(interval);
+        }
+      });
     };
   }, []);
 
