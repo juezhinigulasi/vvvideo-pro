@@ -118,7 +118,11 @@ export default function Home() {
   };
 
   const clearAll = () => {
-    Object.values(pollingIntervalsRef.current).forEach(interval => clearInterval(interval));
+    Object.values(pollingIntervalsRef.current).forEach(timer => {
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+    });
     pollingIntervalsRef.current = {};
     setTasks([
       { id: 1, prompt: '', imageUrl: '', imagePreview: '', status: 'idle', videoUrl: '', taskId: '', model: '' },
@@ -133,17 +137,17 @@ export default function Home() {
   };
 
   const deleteTask = useCallback((taskId: number) => {
-    if (pollingIntervalsRef.current[taskId]) {
-      clearInterval(pollingIntervalsRef.current[taskId]);
-      delete pollingIntervalsRef.current[taskId];
+    if (pollingIntervalsRef.current[taskId] && pollingIntervalsRef.current[taskId] !== null) {
+      clearTimeout(pollingIntervalsRef.current[taskId]);
+      pollingIntervalsRef.current[taskId] = null as any;
     }
     setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
   }, []);
 
   const stopGeneration = useCallback((taskId: number) => {
-    if (pollingIntervalsRef.current[taskId]) {
-      clearInterval(pollingIntervalsRef.current[taskId]);
-      delete pollingIntervalsRef.current[taskId];
+    if (pollingIntervalsRef.current[taskId] && pollingIntervalsRef.current[taskId] !== null) {
+      clearTimeout(pollingIntervalsRef.current[taskId]);
+      pollingIntervalsRef.current[taskId] = null as any;
     }
     setTasks(prevTasks => prevTasks.map(t =>
       t.id === taskId ? { ...t, status: 'idle' as TaskStatus, videoUrl: '', taskId: '' } : t
@@ -234,8 +238,9 @@ export default function Home() {
 
     let pollCount = 0;
     const maxPollCount = 120;
+    let currentInterval = 3000; // 初始3秒
 
-    const pollInterval = setInterval(async () => {
+    const executePoll = async () => {
       try {
         pollCount++;
         console.log(`[前端轮询] 第 ${pollCount} 次轮询，任务ID: ${taskIdStr}，模型: ${model}`);
@@ -251,13 +256,35 @@ export default function Home() {
 
         if (!pollResponse.ok) {
           console.log(`[前端轮询] HTTP错误: ${pollResponse.status}`);
+          
+          // 处理 task_not_exist 错误 - 任务已不存在，说明已完成或被清理
+          if (pollText.includes('task_not_exist')) {
+            console.log('[前端轮询] 任务不存在，可能已被清理');
+            // 检查是否已有视频URL，如果有则认为完成
+            setTasks(prevTasks => {
+              const task = prevTasks.find(t => t.id === taskIdNum);
+              if (task?.videoUrl) {
+                return prevTasks.map(t =>
+                  t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus } : t
+                );
+              }
+              return prevTasks.map(t =>
+                t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
+              );
+            });
+            pollingIntervalsRef.current[taskIdNum] = null as any;
+            return;
+          }
+
           if (pollCount >= maxPollCount) {
-            clearInterval(pollInterval);
-            delete pollingIntervalsRef.current[taskIdNum];
+            pollingIntervalsRef.current[taskIdNum] = null as any;
             setTasks(prevTasks => prevTasks.map(t =>
               t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
             ));
             alert('轮询超时');
+          } else {
+            // 继续轮询
+            scheduleNextPoll();
           }
           return;
         }
@@ -267,56 +294,61 @@ export default function Home() {
         console.log('[前端轮询] 任务状态:', pollResult.status);
         console.log('[前端轮询] 视频URL:', pollResult.video_url || pollResult.url);
 
+        // 根据任务状态动态调整轮询间隔
+        if (pollResult.current_status === 'queued' || pollResult.status === 'queued') {
+          currentInterval = Math.min(currentInterval + 500, 10000); // 排队时慢慢增加到10秒
+        } else {
+          currentInterval = 3000; // 处理中保持3秒
+        }
+
         if (pollResult.status === 'completed') {
           const videoUrl = pollResult.video_url || pollResult.url;
-          clearInterval(pollInterval);
-          delete pollingIntervalsRef.current[taskIdNum];
+          pollingIntervalsRef.current[taskIdNum] = null as any;
           console.log('[前端轮询] ✅ 任务完成，视频URL:', videoUrl);
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'completed' as TaskStatus, videoUrl } : t
           ));
-          // 刷新积分显示
           loadUserCredits();
-          // 刷新 Header 组件的积分显示
-          console.log('[视频生成] 尝试调用 refreshUserCredits');
           if ((window as any).refreshUserCredits) {
-            console.log('[视频生成] refreshUserCredits 存在，调用中...');
             (window as any).refreshUserCredits();
-          } else {
-            console.log('[视频生成] refreshUserCredits 不存在');
           }
         } else if (pollResult.status === 'failed') {
-          clearInterval(pollInterval);
-          delete pollingIntervalsRef.current[taskIdNum];
+          pollingIntervalsRef.current[taskIdNum] = null as any;
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
           alert(`视频生成失败:\n${pollResult.error || '未知错误'}`);
         } else if (pollCount >= maxPollCount) {
-          // 超时处理
-          clearInterval(pollInterval);
-          delete pollingIntervalsRef.current[taskIdNum];
+          pollingIntervalsRef.current[taskIdNum] = null as any;
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
           alert('视频生成超时，请重试');
         } else {
           console.log(`[前端轮询] 任务进行中: ${pollResult.status || 'processing'}`);
+          scheduleNextPoll();
         }
       } catch (error) {
         console.error('[前端轮询] 轮询异常:', error);
         if (pollCount >= maxPollCount) {
-          clearInterval(pollInterval);
-          delete pollingIntervalsRef.current[taskIdNum];
+          pollingIntervalsRef.current[taskIdNum] = null as any;
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
           alert('轮询异常');
+        } else {
+          scheduleNextPoll();
         }
       }
-    }, 5000);
+    };
 
-    pollingIntervalsRef.current[taskIdNum] = pollInterval;
+    const scheduleNextPoll = () => {
+      if (pollingIntervalsRef.current[taskIdNum] === null) return;
+      pollingIntervalsRef.current[taskIdNum] = setTimeout(executePoll, currentInterval) as any;
+    };
+
+    // 立即执行第一次轮询
+    executePoll();
   }, []);
 
   const updateTask = (taskId: number, field: string, value: string) => {
