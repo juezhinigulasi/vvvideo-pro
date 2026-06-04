@@ -238,7 +238,7 @@ export default function Home() {
 
     let pollCount = 0;
     const maxPollCount = 120;
-    let currentInterval = 3000; // 初始3秒
+    let currentInterval = 10000; // 初始10秒（大幅降低请求频率）
 
     const executePoll = async () => {
       try {

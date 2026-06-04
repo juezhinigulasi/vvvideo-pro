@@ -13,6 +13,9 @@ interface CachedTask {
 const taskCache = new Map<string, CachedTask>();
 const CACHE_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000; // 缓存7天
 
+// 上传锁：防止同一任务重复上传
+const uploadingTasks = new Set<string>();
+
 // 清理过期缓存（每小时执行一次）
 setInterval(() => {
   const now = Date.now();
@@ -45,22 +48,40 @@ if (cosConfig.SecretId && cosConfig.SecretKey) {
   });
 }
 
-// 上传视频到COS（含任务缓存检查）- 强制要求taskId
+// 上传视频到COS（含任务缓存检查+上传锁）- 强制要求taskId
 async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<string> {
   if (!cosInstance) {
     console.warn('COS未配置，返回原始URL');
     return videoUrl;
   }
 
-  // 严格检查缓存：如果该任务已经上传过（cosUrl不为空），直接返回缓存的URL
+  // 1. 检查缓存：如果该任务已经上传过（cosUrl不为空），直接返回缓存的URL
   const cached = taskCache.get(taskId);
   if (cached && cached.cosUrl) {
     console.log('🔄 【缓存命中】使用已缓存的COS URL，防止重复上传:', taskId);
     return cached.cosUrl;
   }
 
-  // 标记为正在上传，防止并发重复上传
-  console.log('📤 【开始上传】准备上传视频到COS，taskId:', taskId, 'videoUrl:', videoUrl.substring(0, 50) + '...');
+  // 2. 检查上传锁：如果正在上传中，等待并返回已有结果
+  if (uploadingTasks.has(taskId)) {
+    console.log('🔒 【上传锁】检测到任务正在上传中，等待...', taskId);
+    // 等待100ms后再次检查缓存
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const cachedWait = taskCache.get(taskId);
+    if (cachedWait && cachedWait.cosUrl) {
+      console.log('🔄 【等待完成】任务上传完成，返回缓存URL:', taskId);
+      return cachedWait.cosUrl;
+    }
+    // 100ms后还没上传完，暂时返回原始URL（避免阻塞）
+    console.warn('⏳ 【超时】上传等待超时，暂时返回原始URL:', taskId);
+    return videoUrl;
+  }
+
+  // 3. 获取上传锁
+  uploadingTasks.add(taskId);
+  console.log('📤 【获取锁】开始上传视频到COS，taskId:', taskId, 'videoUrl:', videoUrl.substring(0, 50) + '...');
+
+  // 标记为正在上传
   taskCache.set(taskId, {
     cosUrl: '', // 临时标记，表示正在上传中
     originalUrl: videoUrl,
@@ -86,12 +107,14 @@ async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<strin
       Key: key,
       Body: videoBuffer,
       ContentLength: videoBuffer.length
-    }, (err, data) => {
+    }, async (err, data) => {
       if (err) {
-        console.error('上传到COS失败:', err);
+        console.error('❌ 上传到COS失败:', err);
+        // 释放上传锁
+        uploadingTasks.delete(taskId);
         reject(err);
       } else {
-        console.log('上传到COS成功:', key);
+        console.log('✅ 上传到COS成功:', key);
         // 获取临时签名URL（3天有效期）
         cosInstance!.getObjectUrl({
           Bucket: cosConfig.Bucket,
@@ -101,19 +124,22 @@ async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<strin
           Expires: 259200
         }, (urlErr, urlData) => {
           if (urlErr) {
-            console.error('获取临时URL失败:', urlErr);
+            console.error('❌ 获取临时URL失败:', urlErr);
+            // 释放上传锁
+            uploadingTasks.delete(taskId);
             reject(urlErr);
           } else {
-            console.log('获取临时URL成功:', urlData.Url);
+            console.log('✅ 获取临时URL成功:', urlData.Url);
             // 上传成功后保存到缓存
-            if (taskId) {
-              taskCache.set(taskId, {
-                cosUrl: urlData.Url,
-                originalUrl: videoUrl,
-                createdAt: Date.now()
-              });
-              console.log('💾 已将任务缓存，防止重复上传:', taskId);
-            }
+            taskCache.set(taskId, {
+              cosUrl: urlData.Url,
+              originalUrl: videoUrl,
+              createdAt: Date.now()
+            });
+            console.log('💾 已将任务缓存，防止重复上传:', taskId);
+            // 释放上传锁
+            uploadingTasks.delete(taskId);
+            console.log('🔓 【释放锁】任务上传完成，释放锁:', taskId);
             resolve(urlData.Url);
           }
         });
