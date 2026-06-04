@@ -1,11 +1,82 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/app/lib/supabase';
 import { getSupabaseServer } from '@/app/lib/supabase-server';
+import COS from 'cos-nodejs-sdk-v5';
 
 const GROK_API_KEY = process.env.GROK_API_KEY || '';
 const VEO_API_KEY = process.env.VEO_API_KEY || '';
 const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY || '';
 const COST_PER_VIDEO = 3;
+
+// 腾讯云COS配置
+const cosConfig = {
+  SecretId: process.env.COS_SECRET_ID || '',
+  SecretKey: process.env.COS_SECRET_KEY || '',
+  Bucket: process.env.COS_BUCKET || '',
+  Region: process.env.COS_REGION || 'ap-guangzhou'
+};
+
+// 初始化COS实例
+let cosInstance: COS | null = null;
+if (cosConfig.SecretId && cosConfig.SecretKey) {
+  cosInstance = new COS({
+    SecretId: cosConfig.SecretId,
+    SecretKey: cosConfig.SecretKey
+  });
+}
+
+// 上传视频到COS
+async function uploadVideoToCOS(videoUrl: string): Promise<string> {
+  if (!cosInstance) {
+    console.warn('COS未配置，返回原始URL');
+    return videoUrl;
+  }
+
+  // 下载视频
+  const videoResponse = await fetch(videoUrl);
+  if (!videoResponse.ok) {
+    console.error('下载视频失败:', videoResponse.status);
+    return videoUrl;
+  }
+
+  const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+  const fileName = `video_${Date.now()}.mp4`;
+  const key = `videos/${fileName}`;
+
+  // 上传到COS
+  return new Promise((resolve, reject) => {
+    cosInstance!.putObject({
+      Bucket: cosConfig.Bucket,
+      Region: cosConfig.Region,
+      Key: key,
+      Body: videoBuffer,
+      ContentLength: videoBuffer.length
+    }, (err, data) => {
+      if (err) {
+        console.error('上传到COS失败:', err);
+        reject(err);
+      } else {
+        console.log('上传到COS成功:', key);
+        // 获取临时签名URL（3天有效期）
+        cosInstance!.getObjectUrl({
+          Bucket: cosConfig.Bucket,
+          Region: cosConfig.Region,
+          Key: key,
+          Sign: true,
+          Expires: 259200
+        }, (urlErr, urlData) => {
+          if (urlErr) {
+            console.error('获取临时URL失败:', urlErr);
+            reject(urlErr);
+          } else {
+            console.log('获取临时URL成功:', urlData.Url);
+            resolve(urlData.Url);
+          }
+        });
+      }
+    });
+  });
+}
 
 // 模型映射：前端模型 -> 云雾API模型
 const MODEL_MAPPING: Record<string, string> = {
@@ -228,7 +299,14 @@ export async function POST(request: Request) {
 
       if (result.status === 'completed' && result.video_url) {
         console.log('✅ 视频生成成功');
-        return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+        try {
+          const cosVideoUrl = await uploadVideoToCOS(result.video_url);
+          console.log('✅ 视频上传到COS成功:', cosVideoUrl);
+          return NextResponse.json({ status: 'completed', video_url: cosVideoUrl, cost: COST_PER_VIDEO });
+        } catch (uploadErr) {
+          console.error('❌ 上传到COS失败，使用原始URL:', uploadErr);
+          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+        }
       } else if (result.id) {
         console.log('✅ 视频任务已创建, task_id:', result.id);
         return NextResponse.json({ status: 'pending', id: result.id });
@@ -351,10 +429,21 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
           });
         }
         
-        return NextResponse.json({
-          status: 'completed',
-          video_url: videoUrl,
-        });
+        // 上传到COS
+        try {
+          const cosVideoUrl = await uploadVideoToCOS(videoUrl);
+          console.log('✅ Running Hub视频上传到COS成功:', cosVideoUrl);
+          return NextResponse.json({
+            status: 'completed',
+            video_url: cosVideoUrl,
+          });
+        } catch (uploadErr) {
+          console.error('❌ 上传到COS失败，使用原始URL:', uploadErr);
+          return NextResponse.json({
+            status: 'completed',
+            video_url: videoUrl,
+          });
+        }
       }
       
       // Running Hub失败状态
@@ -400,10 +489,21 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
         });
       }
       
-      return NextResponse.json({
-        status: 'completed',
-        video_url: videoUrl,
-      });
+      // 上传到COS
+      try {
+        const cosVideoUrl = await uploadVideoToCOS(videoUrl);
+        console.log('✅ 云雾API视频上传到COS成功:', cosVideoUrl);
+        return NextResponse.json({
+          status: 'completed',
+          video_url: cosVideoUrl,
+        });
+      } catch (uploadErr) {
+        console.error('❌ 上传到COS失败，使用原始URL:', uploadErr);
+        return NextResponse.json({
+          status: 'completed',
+          video_url: videoUrl,
+        });
+      }
     }
     
     // 定义所有可能的失败状态

@@ -371,25 +371,17 @@ export default function Home() {
     });
   }, []);
 
-  const downloadVideo = useCallback((videoUrl: string, taskId: number, model: string) => {
+  const downloadVideo = useCallback((videoUrl: string, taskId: number) => {
     try {
-      // 判断是否为VEO模型（需要代理）
-      const isVeoModel = model === 'veo' || model === 'veo-4k';
-      
-      if (isVeoModel) {
-        // VEO模型：使用后端代理API下载视频，避免CORS问题
-        const encodedUrl = encodeURIComponent(videoUrl);
-        const downloadUrl = `/api/download-video?url=${encodedUrl}`;
-        window.open(downloadUrl, '_blank');
-      } else {
-        // Grok模型：直接下载
-        const link = document.createElement('a');
-        link.href = videoUrl;
-        link.download = `video_${taskId}_${Date.now()}.mp4`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      // 现在所有视频都在COS上，直接下载即可
+      const link = document.createElement('a');
+      link.href = videoUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.download = `video_${taskId}_${Date.now()}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       console.error('下载失败:', error);
       alert('下载失败，请重试');
@@ -795,7 +787,7 @@ export default function Home() {
                       <video src={task.videoUrl} className="w-full h-full object-contain" controls preload="metadata" />
                     </div>
                     <button
-                      onClick={() => downloadVideo(task.videoUrl, task.id, task.model)}
+                      onClick={() => downloadVideo(task.videoUrl, task.id)}
                       className="w-full py-3 font-medium rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg border-2 bg-[#3B82F6] border-[#3B82F6]/50 hover:bg-[#2563EB] text-white"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
