@@ -96,7 +96,9 @@ async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<strin
   }
 
   const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
-  const fileName = `video_${Date.now()}.mp4`;
+  // 关键修复：用 taskId 代替时间戳作为文件名！
+  // 即使多次上传也只会覆盖同一个文件，不会产生重复文件！
+  const fileName = `video_${taskId}.mp4`;
   const key = `videos/${fileName}`;
 
   // 上传到COS
