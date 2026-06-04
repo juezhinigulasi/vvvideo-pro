@@ -45,21 +45,27 @@ if (cosConfig.SecretId && cosConfig.SecretKey) {
   });
 }
 
-// 上传视频到COS（含任务缓存检查）
-async function uploadVideoToCOS(videoUrl: string, taskId?: string): Promise<string> {
+// 上传视频到COS（含任务缓存检查）- 强制要求taskId
+async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<string> {
   if (!cosInstance) {
     console.warn('COS未配置，返回原始URL');
     return videoUrl;
   }
 
-  // 优先检查缓存：如果该任务已经上传过，直接返回缓存的URL
-  if (taskId) {
-    const cached = taskCache.get(taskId);
-    if (cached) {
-      console.log('🔄 使用缓存的COS URL，避免重复上传:', taskId);
-      return cached.cosUrl;
-    }
+  // 严格检查缓存：如果该任务已经上传过（cosUrl不为空），直接返回缓存的URL
+  const cached = taskCache.get(taskId);
+  if (cached && cached.cosUrl) {
+    console.log('🔄 【缓存命中】使用已缓存的COS URL，防止重复上传:', taskId);
+    return cached.cosUrl;
   }
+
+  // 标记为正在上传，防止并发重复上传
+  console.log('📤 【开始上传】准备上传视频到COS，taskId:', taskId, 'videoUrl:', videoUrl.substring(0, 50) + '...');
+  taskCache.set(taskId, {
+    cosUrl: '', // 临时标记，表示正在上传中
+    originalUrl: videoUrl,
+    createdAt: Date.now()
+  });
 
   // 下载视频
   const videoResponse = await fetch(videoUrl);
@@ -337,15 +343,20 @@ export async function POST(request: Request) {
 
       if (result.status === 'completed' && result.video_url) {
         console.log('✅ 视频生成成功');
+        const taskId = result.id || result.taskId; // 兼容不同API的ID字段
+        if (!taskId) {
+          console.error('❌ 视频生成成功但缺少任务ID');
+          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+        }
         try {
-          const cosVideoUrl = await uploadVideoToCOS(result.video_url, result.id);
+          const cosVideoUrl = await uploadVideoToCOS(result.video_url, taskId);
           console.log('✅ 视频上传到COS成功:', cosVideoUrl);
           return NextResponse.json({ status: 'completed', video_url: cosVideoUrl, cost: COST_PER_VIDEO });
         } catch (uploadErr) {
           console.error('❌ 上传到COS失败，使用原始URL:', uploadErr);
           return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
         }
-      } else if (result.id) {
+      } else if (result.id || result.taskId) {
         console.log('✅ 视频任务已创建, task_id:', result.id);
         return NextResponse.json({ status: 'pending', id: result.id });
       }
