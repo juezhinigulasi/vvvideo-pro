@@ -303,6 +303,10 @@ export default function Home() {
 
         if (pollResult.status === 'completed') {
           const videoUrl = pollResult.video_url || pollResult.url;
+          // 立即清除定时器，防止继续轮询
+          if (pollingIntervalsRef.current[taskIdNum]) {
+            clearTimeout(pollingIntervalsRef.current[taskIdNum]);
+          }
           pollingIntervalsRef.current[taskIdNum] = null as any;
           console.log('[前端轮询] ✅ 任务完成，视频URL:', videoUrl);
           setTasks(prevTasks => prevTasks.map(t =>
@@ -313,12 +317,20 @@ export default function Home() {
             (window as any).refreshUserCredits();
           }
         } else if (pollResult.status === 'failed') {
+          // 立即清除定时器，防止继续轮询
+          if (pollingIntervalsRef.current[taskIdNum]) {
+            clearTimeout(pollingIntervalsRef.current[taskIdNum]);
+          }
           pollingIntervalsRef.current[taskIdNum] = null as any;
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
           ));
           alert(`视频生成失败:\n${pollResult.error || '未知错误'}`);
         } else if (pollCount >= maxPollCount) {
+          // 立即清除定时器，防止继续轮询
+          if (pollingIntervalsRef.current[taskIdNum]) {
+            clearTimeout(pollingIntervalsRef.current[taskIdNum]);
+          }
           pollingIntervalsRef.current[taskIdNum] = null as any;
           setTasks(prevTasks => prevTasks.map(t =>
             t.id === taskIdNum ? { ...t, status: 'failed' as TaskStatus } : t
