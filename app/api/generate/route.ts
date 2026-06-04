@@ -3,6 +3,26 @@ import { supabase } from '@/app/lib/supabase';
 import { getSupabaseServer } from '@/app/lib/supabase-server';
 import COS from 'cos-nodejs-sdk-v5';
 
+// 内存缓存：存储已处理的任务ID和对应的COS URL，防止重复上传
+interface CachedTask {
+  cosUrl: string;
+  originalUrl: string;
+  createdAt: number;
+}
+
+const taskCache = new Map<string, CachedTask>();
+const CACHE_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000; // 缓存7天
+
+// 清理过期缓存（每小时执行一次）
+setInterval(() => {
+  const now = Date.now();
+  for (const [taskId, cache] of taskCache.entries()) {
+    if (now - cache.createdAt > CACHE_EXPIRE_MS) {
+      taskCache.delete(taskId);
+    }
+  }
+}, 60 * 60 * 1000);
+
 const GROK_API_KEY = process.env.GROK_API_KEY || '';
 const VEO_API_KEY = process.env.VEO_API_KEY || '';
 const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY || '';
@@ -25,11 +45,20 @@ if (cosConfig.SecretId && cosConfig.SecretKey) {
   });
 }
 
-// 上传视频到COS
-async function uploadVideoToCOS(videoUrl: string): Promise<string> {
+// 上传视频到COS（含任务缓存检查）
+async function uploadVideoToCOS(videoUrl: string, taskId?: string): Promise<string> {
   if (!cosInstance) {
     console.warn('COS未配置，返回原始URL');
     return videoUrl;
+  }
+
+  // 优先检查缓存：如果该任务已经上传过，直接返回缓存的URL
+  if (taskId) {
+    const cached = taskCache.get(taskId);
+    if (cached) {
+      console.log('🔄 使用缓存的COS URL，避免重复上传:', taskId);
+      return cached.cosUrl;
+    }
   }
 
   // 下载视频
@@ -70,6 +99,15 @@ async function uploadVideoToCOS(videoUrl: string): Promise<string> {
             reject(urlErr);
           } else {
             console.log('获取临时URL成功:', urlData.Url);
+            // 上传成功后保存到缓存
+            if (taskId) {
+              taskCache.set(taskId, {
+                cosUrl: urlData.Url,
+                originalUrl: videoUrl,
+                createdAt: Date.now()
+              });
+              console.log('💾 已将任务缓存，防止重复上传:', taskId);
+            }
             resolve(urlData.Url);
           }
         });
@@ -300,7 +338,7 @@ export async function POST(request: Request) {
       if (result.status === 'completed' && result.video_url) {
         console.log('✅ 视频生成成功');
         try {
-          const cosVideoUrl = await uploadVideoToCOS(result.video_url);
+          const cosVideoUrl = await uploadVideoToCOS(result.video_url, result.id);
           console.log('✅ 视频上传到COS成功:', cosVideoUrl);
           return NextResponse.json({ status: 'completed', video_url: cosVideoUrl, cost: COST_PER_VIDEO });
         } catch (uploadErr) {
@@ -429,9 +467,9 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
           });
         }
         
-        // 上传到COS
+        // 上传到COS（传入taskId防止重复）
         try {
-          const cosVideoUrl = await uploadVideoToCOS(videoUrl);
+          const cosVideoUrl = await uploadVideoToCOS(videoUrl, id);
           console.log('✅ Running Hub视频上传到COS成功:', cosVideoUrl);
           return NextResponse.json({
             status: 'completed',
@@ -489,9 +527,9 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
         });
       }
       
-      // 上传到COS
+      // 上传到COS（传入taskId防止重复）
       try {
-        const cosVideoUrl = await uploadVideoToCOS(videoUrl);
+        const cosVideoUrl = await uploadVideoToCOS(videoUrl, id);
         console.log('✅ 云雾API视频上传到COS成功:', cosVideoUrl);
         return NextResponse.json({
           status: 'completed',
