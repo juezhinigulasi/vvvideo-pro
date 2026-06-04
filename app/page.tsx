@@ -75,9 +75,14 @@ export default function Home() {
     loadUserCredits();
     
     // 刷新页面后，恢复正在处理中的任务的轮询
-    const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'processing');
+    const pendingTasks = tasks.filter(t => (t.status === 'pending' || t.status === 'processing') && t.taskId);
     if (pendingTasks.length > 0) {
       console.log(`🔄 恢复 ${pendingTasks.length} 个任务的轮询...`);
+      for (const task of pendingTasks) {
+        if (!pollingIntervalsRef.current[task.id]) {
+          pollTask(task.taskId!, task.id, task.model);
+        }
+      }
     }
   }, []);
 
@@ -85,15 +90,14 @@ export default function Home() {
     // 任务状态变化时保存到 localStorage
     localStorage.setItem('videoTasks', JSON.stringify(tasks));
     
-    // 如果有正在处理的任务且有 taskId，启动轮询
-    const pendingTasks = tasks.filter(t => (t.status === 'pending' || t.status === 'processing') && t.taskId);
-    if (pendingTasks.length > 0) {
-      for (const task of pendingTasks) {
-        if (!pollingIntervalsRef.current[task.id]) {
-          pollTask(task.taskId!, task.id, task.model);
-        }
+    // 检查是否有任务完成或失败，如果有则清除对应的轮询
+    tasks.forEach(task => {
+      if ((task.status === 'completed' || task.status === 'failed') && pollingIntervalsRef.current[task.id]) {
+        console.log(`[轮询清理] 检测到任务 ${task.id} 已 ${task.status}，清除轮询`);
+        clearTimeout(pollingIntervalsRef.current[task.id]);
+        pollingIntervalsRef.current[task.id] = null as any;
       }
-    }
+    });
   }, [tasks]);
 
   const loadUserCredits = async () => {
