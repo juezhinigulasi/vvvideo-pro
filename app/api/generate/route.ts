@@ -30,6 +30,15 @@ const GROK_API_KEY = process.env.GROK_API_KEY || '';
 const VEO_API_KEY = process.env.VEO_API_KEY || '';
 const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY || '';
 const COST_PER_VIDEO = 3;
+const RUNNINGHUB_COST_PER_VIDEO = 4; // Running Hub模型消耗4积分
+
+// 获取模型对应的积分消耗
+const getCostForModel = (model: string): number => {
+  if (isRunningHubModel(model)) {
+    return RUNNINGHUB_COST_PER_VIDEO;
+  }
+  return COST_PER_VIDEO;
+};
 
 // 腾讯云COS配置
 const cosConfig = {
@@ -217,6 +226,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '用户未登录' }, { status: 401 });
     }
 
+    // 根据模型获取积分消耗（提前定义，供后续退款使用）
+    const cost = getCostForModel(model || '');
+
     // 1. 检查并扣除积分
     console.log('🔍 开始检查积分...');
     
@@ -243,16 +255,16 @@ export async function POST(request: Request) {
 
       originalPoints = profile.points || 0;
       
-      if (originalPoints < COST_PER_VIDEO) {
-        console.error('❌ 积分不足:', originalPoints);
-        return NextResponse.json({ error: `积分不足！当前积分: ${originalPoints}，需要 ${COST_PER_VIDEO} 积分` }, { status: 400 });
+      if (originalPoints < cost) {
+        console.error('❌ 积分不足:', originalPoints, '需要:', cost);
+        return NextResponse.json({ error: `积分不足！当前积分: ${originalPoints}，需要 ${cost} 积分` }, { status: 400 });
       }
 
       // 扣减积分（使用服务端密钥绕过 RLS）
-      console.log('💰 开始扣减积分:', COST_PER_VIDEO);
+      console.log('💰 开始扣减积分:', cost);
       const { error: updateError } = await getSupabaseServer()
         .from('profiles')
-        .update({ points: originalPoints - COST_PER_VIDEO })
+        .update({ points: originalPoints - cost })
         .eq('id', user_id);
 
       if (updateError) {
@@ -265,7 +277,7 @@ export async function POST(request: Request) {
       const { error: insertError } = await supabase.from('billing_history').insert({
         user_id,
         type: 'video_gen',
-        amount: -COST_PER_VIDEO,
+        amount: -cost,
         description: '生成 AI 视频',
       });
 
@@ -352,7 +364,7 @@ export async function POST(request: Request) {
 
       if (!response.ok) {
         console.error('❌ 视频API请求失败:', response.status, responseText);
-        await refundPoints(user_id, COST_PER_VIDEO, 'API请求失败');
+        await refundPoints(user_id, cost, 'API请求失败');
         let errorMessage = '生成失败';
         try {
           const errorJson = JSON.parse(responseText);
@@ -374,15 +386,15 @@ export async function POST(request: Request) {
         const taskId = result.id || result.taskId; // 兼容不同API的ID字段
         if (!taskId) {
           console.error('❌ 视频生成成功但缺少任务ID');
-          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost });
         }
         try {
           const cosVideoUrl = await uploadVideoToCOS(result.video_url, taskId);
           console.log('✅ 视频上传到COS成功:', cosVideoUrl);
-          return NextResponse.json({ status: 'completed', video_url: cosVideoUrl, cost: COST_PER_VIDEO });
+          return NextResponse.json({ status: 'completed', video_url: cosVideoUrl, cost });
         } catch (uploadErr) {
           console.error('❌ 上传到COS失败，使用原始URL:', uploadErr);
-          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost: COST_PER_VIDEO });
+          return NextResponse.json({ status: 'completed', video_url: result.video_url, cost });
         }
       } else if (result.id || result.taskId) {
         console.log('✅ 视频任务已创建, task_id:', result.id);
@@ -390,13 +402,13 @@ export async function POST(request: Request) {
       }
 
       console.error('❌ 视频API返回格式错误:', result);
-      await refundPoints(user_id, COST_PER_VIDEO, 'API返回格式错误');
+      await refundPoints(user_id, cost, 'API返回格式错误');
       return NextResponse.json({ error: '视频生成失败' }, { status: 500 });
 
     } catch (fetchError) {
       clearTimeout(timeoutId);
       console.error('❌ 网络请求失败:', fetchError);
-      await refundPoints(user_id, COST_PER_VIDEO, '网络请求失败');
+      await refundPoints(user_id, cost, '网络请求失败');
       return NextResponse.json({ error: '网络请求失败: ' + (fetchError as Error).message }, { status: 500 });
     }
 
@@ -409,6 +421,9 @@ export async function POST(request: Request) {
 // 轮询任务状态
 async function handlePollTask(id: string, userId: string, model: string = '') {
   console.log('🔄 轮询任务状态:', id, '模型:', model);
+  
+  // 根据模型获取积分消耗
+  const cost = getCostForModel(model);
   
   // 根据模型获取对应的API密钥
   const apiKey = getApiKey(model);
@@ -498,7 +513,7 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
         
         if (!videoUrl) {
           console.error('❌ 视频生成成功但未返回视频URL');
-          await refundPoints(userId, COST_PER_VIDEO, '视频生成成功但未返回URL');
+          await refundPoints(userId, cost, '视频生成成功但未返回URL');
           return NextResponse.json({ 
             status: 'failed', 
             error: '视频生成成功但未返回视频URL',
@@ -527,7 +542,7 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
       if (result.status === 'FAILED') {
         const errorMsg = result.failReason || result.error || result.message || `视频生成失败: ${result.status}`;
         console.log('❌ Running Hub视频生成失败:', errorMsg);
-        await refundPoints(userId, COST_PER_VIDEO, errorMsg);
+        await refundPoints(userId, cost, errorMsg);
         return NextResponse.json({
           status: 'failed',
           error: errorMsg,
@@ -558,7 +573,7 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
       
       if (!videoUrl) {
         console.error('❌ 视频生成成功但未返回视频URL');
-        await refundPoints(userId, COST_PER_VIDEO, '视频生成成功但未返回URL');
+        await refundPoints(userId, cost, '视频生成成功但未返回URL');
         return NextResponse.json({ 
           status: 'failed', 
           error: '视频生成成功但未返回视频URL',
@@ -600,7 +615,7 @@ async function handlePollTask(id: string, userId: string, model: string = '') {
       console.log('❌ 视频生成失败:', errorMsg, '原始状态:', result.status);
       
       // 返还积分并记录账单
-      await refundPoints(userId, COST_PER_VIDEO, errorMsg);
+      await refundPoints(userId, cost, errorMsg);
       
       return NextResponse.json({
         status: 'failed',
