@@ -192,7 +192,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { prompt, model, input_reference, poll, id, aspect_ratio, duration, user_id } = body;
+    const { prompt, model, input_reference, input_references, poll, id, aspect_ratio, duration, user_id } = body;
 
     console.log('========== 视频生成请求 ==========');
     console.log('poll:', poll, 'id:', id);
@@ -309,12 +309,17 @@ export async function POST(request: Request) {
     let requestBody: Record<string, unknown>;
     let apiUrl = 'https://yunwu.ai/v1/video/create'; // 默认云雾API
     
+    // 处理多个参考图URL
+    const imageUrls = input_references && Array.isArray(input_references) && input_references.length > 0
+      ? input_references.map((url: string) => url.trim()).filter((url: string) => url)
+      : (input_reference ? [input_reference.trim()] : []);
+
     if (isRunningHubModel(model || '')) {
       // Running Hub模型：使用image-to-video接口格式
       apiUrl = 'https://www.runninghub.cn/openapi/v2/rhart-video-g/image-to-video';
       requestBody = {
         prompt: prompt,
-        imageUrls: input_reference ? [input_reference.trim()] : [],
+        imageUrls: imageUrls,
         aspectRatio: aspect_ratio || '16:9',
         resolution: '720p',
         duration: duration || 10,
@@ -324,7 +329,7 @@ export async function POST(request: Request) {
       requestBody = {
         model: apiModel,
         prompt: prompt,
-        images: input_reference ? [input_reference.trim()] : [],
+        images: imageUrls,
         enhance_prompt: true,
         enable_upsample: true,
         aspect_ratio: aspect_ratio || '16:9',
@@ -336,7 +341,7 @@ export async function POST(request: Request) {
         prompt: prompt,
         aspect_ratio: aspect_ratio || '16:9',
         size: '720P',
-        images: input_reference ? [input_reference.trim()] : [],
+        images: imageUrls,
       };
     }
 
