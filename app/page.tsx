@@ -785,24 +785,29 @@ export default function Home() {
 
                 <div>
                   <label className="block text-xs text-[#888] mb-2">参考图（可选，最多3张）</label>
-                  <div className="space-y-3">
-                    {[0, 1, 2].map((imageIndex) => (
-                      <div key={imageIndex}>
-                        <div className="text-xs text-[#666] mb-1">第{imageIndex + 1}张{!task.imageUrls[imageIndex] && '（未上传）'}</div>
-                        <input
-                          ref={(el) => { (fileInputRef as any).current[`${task.id}-${imageIndex}`] = el; }}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileSelect(task.id, e.target.files?.[0] || null, imageIndex)}
-                        />
-                        {task.imagePreviews[imageIndex] ? (
-                          <div className="space-y-2">
-                            <div className="relative border border-white/10 rounded-xl overflow-hidden bg-[#1A1C1E]">
-                              <img src={task.imagePreviews[imageIndex]} alt="预览" className="w-full h-24 object-contain" />
+                  <div className="space-y-2">
+                    {/* 上传区域 */}
+                    <div className="flex flex-wrap gap-2">
+                      {[0, 1, 2].map((imageIndex) => (
+                        <div key={imageIndex}>
+                          <input
+                            ref={(el) => { (fileInputRef as any).current[`${task.id}-${imageIndex}`] = el; }}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handleFileSelect(task.id, e.target.files?.[0] || null, imageIndex)}
+                          />
+                          {task.imagePreviews[imageIndex] ? (
+                            // 已上传的缩略图
+                            <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-white/10 bg-[#1A1C1E]">
+                              <img src={task.imagePreviews[imageIndex]} alt={`图${imageIndex + 1}`} className="w-full h-full object-cover" />
+                              {/* 图片序号标签 */}
+                              <div className="absolute top-0 left-0 bg-[#D4AF37] text-black text-xs font-bold px-1.5 py-0.5">
+                                图{imageIndex + 1}
+                              </div>
+                              {/* 删除按钮 */}
                               <button
                                 onClick={() => {
-                                  // 删除第imageIndex张图片
                                   const newUrls = [...task.imageUrls];
                                   const newPreviews = [...task.imagePreviews];
                                   newUrls[imageIndex] = '';
@@ -810,33 +815,51 @@ export default function Home() {
                                   setTasks(prevTasks => prevTasks.map(t =>
                                     t.id === task.id ? { ...t, imageUrls: newUrls, imagePreviews: newPreviews } : t
                                   ));
-                                  // 清空文件输入
                                   const fileInput = (fileInputRef as any).current[`${task.id}-${imageIndex}`];
                                   if (fileInput) {
                                     fileInput.value = '';
                                   }
                                 }}
-                                className="absolute top-2 right-2 w-6 h-6 bg-[#EF4444] text-white rounded-full flex items-center justify-center hover:bg-[#DC2626] transition-colors"
+                                className="absolute top-0 right-0 w-5 h-5 bg-[#EF4444] text-white rounded-bl-lg flex items-center justify-center hover:bg-[#DC2626] transition-colors"
                               >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                               </button>
                             </div>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={task.imageUrls[imageIndex] || ''}
-                                onChange={(e) => {
-                                  const newUrls = [...task.imageUrls];
-                                  newUrls[imageIndex] = e.target.value;
-                                  setTasks(prevTasks => prevTasks.map(t =>
-                                    t.id === task.id ? { ...t, imageUrls: newUrls } : t
-                                  ));
-                                }}
-                                className="flex-1 bg-[#1A1C1E] border border-white/10 rounded-xl px-3 py-2 text-xs text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
-                                placeholder="图片 URL"
-                              />
+                          ) : (
+                            // 上传占位框
+                            <label
+                              htmlFor={`file-${task.id}-${imageIndex}`}
+                              className="w-20 h-20 rounded-lg border-2 border-dashed border-white/20 bg-[#1A1C1E] flex flex-col items-center justify-center cursor-pointer hover:border-[#D4AF37] hover:bg-[#2A2C2E] transition-all"
+                            >
+                              <svg className="w-6 h-6 text-[#666]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                              </svg>
+                              <span className="text-xs text-[#666] mt-1">图{imageIndex + 1}</span>
+                            </label>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {/* URL输入区域（可选） */}
+                    <div className="space-y-1">
+                      {[0, 1, 2].map((imageIndex) => (
+                        <div key={imageIndex} className="flex gap-2">
+                          <span className="text-xs text-[#666] w-8 pt-2">图{imageIndex + 1}</span>
+                          <input
+                            type="text"
+                            value={task.imageUrls[imageIndex] || ''}
+                            onChange={(e) => {
+                              const newUrls = [...task.imageUrls];
+                              newUrls[imageIndex] = e.target.value;
+                              setTasks(prevTasks => prevTasks.map(t =>
+                                t.id === task.id ? { ...t, imageUrls: newUrls } : t
+                              ));
+                            }}
+                            className="flex-1 bg-[#1A1C1E] border border-white/10 rounded-lg px-3 py-2 text-xs text-[#E5E5E5] placeholder-[#666] focus:outline-none focus:border-[#D4AF37] transition-all"
+                            placeholder="图片 URL"
+                          />
                               <button
                                 onClick={() => copyToClipboard(task.imageUrls[imageIndex] || '')}
                                 className="px-3 py-2 text-xs bg-[#1A1C1E] text-[#D4AF37] border border-[#D4AF37]/30 rounded-xl hover:bg-[#D4AF37]/10 transition-all"
@@ -844,23 +867,9 @@ export default function Home() {
                                 复制
                               </button>
                             </div>
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => (fileInputRef as any).current[`${task.id}-${imageIndex}`]?.click()}
-                            className="border border-white/10 rounded-xl p-3 text-center hover:border-[#D4AF37]/50 hover:bg-[#D4AF37]/5 transition-all cursor-pointer bg-[#1A1C1E]"
-                          >
-                            <div className="flex flex-col items-center gap-1">
-                              <svg className="w-5 h-5 text-[#D4AF37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                              </svg>
-                              <span className="text-xs text-[#888]">点击上传</span>
-                            </div>
-                          </div>
-                        )}
+                          ))}
+                        </div>
                       </div>
-                    ))}
-                  </div>
                 </div>
 
                 {isGenerating(task.status) ? (
