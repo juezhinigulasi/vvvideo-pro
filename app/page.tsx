@@ -194,9 +194,10 @@ export default function Home() {
 
   // 图片上传大小限制（10MB）
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-  // 单个任务所有图片总大小限制（15MB，考虑Base64增加33%后约20MB，接近Vercel 4.5MB限制的安全范围）
-  // 实际上Vercel免费计划限制是4.5MB，所以设置为3MB总大小
-  const MAX_TOTAL_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB（考虑Base64编码后约4MB）
+  // 单个任务所有图片总大小限制（30MB）
+  // 由于前端会自动压缩大图片，实际传输的Base64会更小
+  // 压缩策略：1280px最大边 + 逐步降低质量 + 二次尺寸压缩
+  const MAX_TOTAL_IMAGE_SIZE = 30 * 1024 * 1024; // 30MB
 
   const compressImage = async (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -208,7 +209,9 @@ export default function Home() {
           let width = img.width;
           let height = img.height;
           
-          const maxDimension = 1920;
+          // 优化：先缩小尺寸，再压缩质量
+          // 最大尺寸限制为1280px（高清但更小）
+          const maxDimension = 1280;
           if (width > maxDimension || height > maxDimension) {
             const ratio = Math.min(maxDimension / width, maxDimension / height);
             width = Math.round(width * ratio);
@@ -227,14 +230,28 @@ export default function Home() {
           
           ctx.drawImage(img, 0, 0, width, height);
           
-          let currentQuality = 0.9;
+          // 优化：从0.8开始压缩，更激进
+          let currentQuality = 0.8;
           const compressStep = 0.1;
+          const minQuality = 0.3; // 最低质量限制，确保图片可用
           
           const tryCompress = () => {
             const compressedDataUrl = canvas.toDataURL('image/jpeg', currentQuality);
             const compressedSize = compressedDataUrl.length * 0.75;
             
-            if (compressedSize > MAX_SIZE && currentQuality > 0.1) {
+            // 如果质量已经降到最低但还是太大，尝试进一步缩小尺寸
+            if (compressedSize > MAX_SIZE && currentQuality <= minQuality) {
+              // 进一步缩小尺寸到800px
+              const newWidth = Math.round(width * 0.75);
+              const newHeight = Math.round(height * 0.75);
+              canvas.width = newWidth;
+              canvas.height = newHeight;
+              ctx.drawImage(img, 0, 0, newWidth, newHeight);
+              width = newWidth;
+              height = newHeight;
+              currentQuality = 0.8; // 重置质量
+              tryCompress();
+            } else if (compressedSize > MAX_SIZE && currentQuality > minQuality) {
               currentQuality -= compressStep;
               tryCompress();
             } else {
