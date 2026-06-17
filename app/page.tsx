@@ -791,6 +791,7 @@ export default function Home() {
                       {[0, 1, 2].map((imageIndex) => (
                         <div key={imageIndex}>
                           <input
+                            id={`file-${task.id}-${imageIndex}`}
                             ref={(el) => { (fileInputRef as any).current[`${task.id}-${imageIndex}`] = el; }}
                             type="file"
                             accept="image/*"
