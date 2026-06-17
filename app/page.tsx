@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import { supabase } from './lib/supabase';
+import { saveTasks, loadTasks, clearTasks } from './lib/storage';
 
 type TaskStatus = 'idle' | 'pending' | 'processing' | 'completed' | 'failed' | 'error';
 
@@ -38,43 +39,28 @@ interface GlobalConfig {
 }
 
 export default function Home() {
-  // localStorage最大存储大小（4MB，留1MB余量）
-  const MAX_LOCALSTORAGE_SIZE = 4 * 1024 * 1024;
+  // 使用 IndexedDB 存储，无大小限制
+  const [tasks, setTasks] = useState<Task[]>([
+    { id: 1, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '', model: '' },
+    { id: 2, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '', model: '' },
+    { id: 3, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '', model: '' },
+  ]);
 
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('videoTasks');
-      if (saved) {
-        // 检查数据大小，如果过大则清理
-        if (saved.length > MAX_LOCALSTORAGE_SIZE) {
-          console.warn('⚠ localStorage数据过大，自动清理');
-          localStorage.removeItem('videoTasks');
-        } else {
-          try {
-            const parsed = JSON.parse(saved);
-            // 验证数据格式
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              // 清理已完成/失败任务的图片数据，减少存储空间
-              return parsed.map(task => ({
-                ...task,
-                // 如果任务已完成或失败，清空图片数据以节省空间
-                imageUrls: (task.status === 'completed' || task.status === 'failed') ? [] : task.imageUrls || [],
-                imagePreviews: (task.status === 'completed' || task.status === 'failed') ? [] : task.imagePreviews || [],
-              }));
-            }
-          } catch (e) {
-            console.error('⚠ localStorage解析失败:', e);
-            localStorage.removeItem('videoTasks');
-          }
+  // 从 IndexedDB 加载任务
+  useEffect(() => {
+    const loadSavedTasks = async () => {
+      try {
+        const savedTasks = await loadTasks();
+        if (savedTasks && savedTasks.length > 0) {
+          console.log(`🔄 从IndexedDB恢复 ${savedTasks.length} 个任务`);
+          setTasks(savedTasks as Task[]);
         }
+      } catch (e) {
+        console.error('⚠ 从IndexedDB加载失败:', e);
       }
-    }
-    return [
-      { id: 1, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '' },
-      { id: 2, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '' },
-      { id: 3, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '' },
-    ];
-  });
+    };
+    loadSavedTasks();
+  }, []);
 
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({
     model: 'grok-video-3-10s',
@@ -108,21 +94,16 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    // 任务状态变化时保存到 localStorage
-    try {
-      const tasksString = JSON.stringify(tasks);
-      // 检查数据大小，避免超过localStorage限制
-      if (tasksString.length > MAX_LOCALSTORAGE_SIZE) {
-        console.warn('⚠ localStorage数据过大，跳过保存');
-        // 清理localStorage以恢复页面
-        localStorage.removeItem('videoTasks');
-      } else {
-        localStorage.setItem('videoTasks', tasksString);
+    // 任务状态变化时保存到 IndexedDB
+    const saveData = async () => {
+      try {
+        await saveTasks(tasks);
+        console.log(`✅ 保存 ${tasks.length} 个任务到IndexedDB`);
+      } catch (e) {
+        console.error('⚠ 保存到IndexedDB失败:', e);
       }
-    } catch (e) {
-      console.error('⚠ 保存到localStorage失败:', e);
-      localStorage.removeItem('videoTasks');
-    }
+    };
+    saveData();
     
     // 检查是否有任务完成或失败，如果有则清除对应的轮询
     tasks.forEach(task => {
@@ -651,12 +632,6 @@ export default function Home() {
       });
     };
   }, []);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('videoTasks', JSON.stringify(tasks));
-    }
-  }, [tasks]);
 
   return (
     <div className="min-h-screen bg-[#1A1C1E]">
