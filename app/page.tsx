@@ -38,14 +38,34 @@ interface GlobalConfig {
 }
 
 export default function Home() {
+  // localStorage最大存储大小（4MB，留1MB余量）
+  const MAX_LOCALSTORAGE_SIZE = 4 * 1024 * 1024;
+
   const [tasks, setTasks] = useState<Task[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('videoTasks');
       if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          // 如果解析失败，返回默认值
+        // 检查数据大小，如果过大则清理
+        if (saved.length > MAX_LOCALSTORAGE_SIZE) {
+          console.warn('⚠ localStorage数据过大，自动清理');
+          localStorage.removeItem('videoTasks');
+        } else {
+          try {
+            const parsed = JSON.parse(saved);
+            // 验证数据格式
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              // 清理已完成/失败任务的图片数据，减少存储空间
+              return parsed.map(task => ({
+                ...task,
+                // 如果任务已完成或失败，清空图片数据以节省空间
+                imageUrls: (task.status === 'completed' || task.status === 'failed') ? [] : task.imageUrls || [],
+                imagePreviews: (task.status === 'completed' || task.status === 'failed') ? [] : task.imagePreviews || [],
+              }));
+            }
+          } catch (e) {
+            console.error('⚠ localStorage解析失败:', e);
+            localStorage.removeItem('videoTasks');
+          }
         }
       }
     }
@@ -89,7 +109,20 @@ export default function Home() {
 
   useEffect(() => {
     // 任务状态变化时保存到 localStorage
-    localStorage.setItem('videoTasks', JSON.stringify(tasks));
+    try {
+      const tasksString = JSON.stringify(tasks);
+      // 检查数据大小，避免超过localStorage限制
+      if (tasksString.length > MAX_LOCALSTORAGE_SIZE) {
+        console.warn('⚠ localStorage数据过大，跳过保存');
+        // 清理localStorage以恢复页面
+        localStorage.removeItem('videoTasks');
+      } else {
+        localStorage.setItem('videoTasks', tasksString);
+      }
+    } catch (e) {
+      console.error('⚠ 保存到localStorage失败:', e);
+      localStorage.removeItem('videoTasks');
+    }
     
     // 检查是否有任务完成或失败，如果有则清除对应的轮询
     tasks.forEach(task => {
@@ -161,6 +194,9 @@ export default function Home() {
 
   // 图片上传大小限制（10MB）
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+  // 单个任务所有图片总大小限制（15MB，考虑Base64增加33%后约20MB，接近Vercel 4.5MB限制的安全范围）
+  // 实际上Vercel免费计划限制是4.5MB，所以设置为3MB总大小
+  const MAX_TOTAL_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB（考虑Base64编码后约4MB）
 
   const compressImage = async (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -235,6 +271,21 @@ export default function Home() {
     // 检查文件大小限制
     if (file.size > MAX_IMAGE_SIZE) {
       alert(`图片大小超过限制！最大支持 ${MAX_IMAGE_SIZE / (1024 * 1024)}MB，当前文件大小: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      return;
+    }
+
+    // 检查总大小限制（考虑Base64编码后增加约33%）
+    const currentTotalSize = task.imageUrls.reduce((sum, url) => {
+      // Base64编码后的大小约为原大小的1.33倍
+      // 解码后约为原长度的75%
+      return sum + (url.length * 0.75);
+    }, 0);
+    
+    // 新图片的预估大小（考虑压缩）
+    const newImageSize = file.size > 2 * 1024 * 1024 ? 2 * 1024 * 1024 : file.size;
+    
+    if (currentTotalSize + newImageSize > MAX_TOTAL_IMAGE_SIZE) {
+      alert(`图片总大小超过限制！当前任务已上传 ${(currentTotalSize / (1024 * 1024)).toFixed(2)}MB，这张图片 ${(file.size / (1024 * 1024)).toFixed(2)}MB，总大小不能超过 ${MAX_TOTAL_IMAGE_SIZE / (1024 * 1024)}MB`);
       return;
     }
 
