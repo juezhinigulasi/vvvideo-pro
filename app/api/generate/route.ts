@@ -701,10 +701,4 @@ async function refundPoints(userId: string, amount: number, reason: string) {
   }
 }
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '20mb',
-    },
-  },
-};
+

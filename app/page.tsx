@@ -159,9 +159,12 @@ export default function Home() {
     ));
   }, []);
 
+  // 图片上传大小限制（10MB）
+  const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+
   const compressImage = async (file: File): Promise<string> => {
     return new Promise((resolve) => {
-      const MAX_SIZE = 2 * 1024 * 1024;
+      const MAX_SIZE = MAX_IMAGE_SIZE;
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
@@ -228,6 +231,12 @@ export default function Home() {
     // 更新图片预览数组
     const newPreviews = [...task.imagePreviews];
     newPreviews[imageIndex] = previewUrl;
+
+    // 检查文件大小限制
+    if (file.size > MAX_IMAGE_SIZE) {
+      alert(`图片大小超过限制！最大支持 ${MAX_IMAGE_SIZE / (1024 * 1024)}MB，当前文件大小: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+      return;
+    }
 
     if (file.size > 2 * 1024 * 1024) {
       const compressedBase64 = await compressImage(file);
