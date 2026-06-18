@@ -46,7 +46,7 @@ export default function Home() {
     { id: 3, prompt: '', imageUrls: [], imagePreviews: [], status: 'idle', videoUrl: '', taskId: '', model: '' },
   ]);
 
-  // 从 IndexedDB 加载任务
+  // 从 IndexedDB 加载任务，并恢复轮询
   useEffect(() => {
     const loadSavedTasks = async () => {
       try {
@@ -54,6 +54,17 @@ export default function Home() {
         if (savedTasks && savedTasks.length > 0) {
           console.log(`🔄 从IndexedDB恢复 ${savedTasks.length} 个任务`);
           setTasks(savedTasks as Task[]);
+          
+          // 恢复正在处理中的任务的轮询
+          const pendingTasks = savedTasks.filter(t => (t.status === 'pending' || t.status === 'processing') && t.taskId);
+          if (pendingTasks.length > 0) {
+            console.log(`🔄 恢复 ${pendingTasks.length} 个任务的轮询...`);
+            for (const task of pendingTasks) {
+              if (!pollingIntervalsRef.current[task.id]) {
+                pollTask(task.taskId!, task.id, task.model);
+              }
+            }
+          }
         }
       } catch (e) {
         console.error('⚠ 从IndexedDB加载失败:', e);
@@ -80,17 +91,6 @@ export default function Home() {
 
   useEffect(() => {
     loadUserCredits();
-    
-    // 刷新页面后，恢复正在处理中的任务的轮询
-    const pendingTasks = tasks.filter(t => (t.status === 'pending' || t.status === 'processing') && t.taskId);
-    if (pendingTasks.length > 0) {
-      console.log(`🔄 恢复 ${pendingTasks.length} 个任务的轮询...`);
-      for (const task of pendingTasks) {
-        if (!pollingIntervalsRef.current[task.id]) {
-          pollTask(task.taskId!, task.id, task.model);
-        }
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -316,8 +316,8 @@ export default function Home() {
     ));
 
     let pollCount = 0;
-    const maxPollCount = 120;
-    let currentInterval = 10000; // 初始10秒（大幅降低请求频率）
+    const maxPollCount = 200; // 增加最大轮询次数到200次
+    let currentInterval = 5000; // 初始5秒
 
     const executePoll = async () => {
       try {
@@ -362,7 +362,8 @@ export default function Home() {
             ));
             alert('轮询超时');
           } else {
-            // 继续轮询
+            // 继续轮询，间隔时间缩短
+            currentInterval = 3000; // 网络错误时使用3秒间隔
             scheduleNextPoll();
           }
           return;
@@ -375,7 +376,7 @@ export default function Home() {
 
         // 根据任务状态动态调整轮询间隔
         if (pollResult.current_status === 'queued' || pollResult.status === 'queued') {
-          currentInterval = Math.min(currentInterval + 500, 10000); // 排队时慢慢增加到10秒
+          currentInterval = Math.min(currentInterval + 500, 8000); // 排队时慢慢增加到8秒
         } else {
           currentInterval = 3000; // 处理中保持3秒
         }
@@ -434,6 +435,8 @@ export default function Home() {
           ));
           alert('轮询异常');
         } else {
+          // 发生异常时缩短间隔
+          currentInterval = 3000;
           scheduleNextPoll();
         }
       }
