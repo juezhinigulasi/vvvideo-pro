@@ -26,10 +26,8 @@ interface ModelConfig {
 }
 
 const MODELS: ModelConfig[] = [
-  { id: 'grok-video-3-10s', name: 'Grok 3', duration: 10, cost: 3 },
+  { id: 'grok-imagine-video', name: 'Grok 3', duration: 10, cost: 4.2 },
   { id: 'grok-backup', name: 'grok3(备用)', duration: 10, cost: 4 }, // 备用模型消耗4积分
-  { id: 'veo', name: 'VEO', duration: 8, cost: 3 },
-  { id: 'veo-4k', name: 'VEO 4K', duration: 8, cost: 3 },
 ];
 
 interface GlobalConfig {

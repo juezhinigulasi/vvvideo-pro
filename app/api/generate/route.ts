@@ -29,7 +29,7 @@ setInterval(() => {
 const GROK_API_KEY = process.env.GROK_API_KEY || '';
 const VEO_API_KEY = process.env.VEO_API_KEY || '';
 const RUNNINGHUB_API_KEY = process.env.RUNNINGHUB_API_KEY || '';
-const COST_PER_VIDEO = 3;
+const COST_PER_VIDEO = 4.2; // Grok模型消耗4.2积分
 const RUNNINGHUB_COST_PER_VIDEO = 4; // Running Hub模型消耗4积分
 
 // 获取模型对应的积分消耗
@@ -161,7 +161,7 @@ async function uploadVideoToCOS(videoUrl: string, taskId: string): Promise<strin
 
 // 模型映射：前端模型 -> 云雾API模型
 const MODEL_MAPPING: Record<string, string> = {
-  'grok-video-3-10s': 'grok-video-3-10s',
+  'grok-imagine-video': 'grok-imagine-video',
   'veo': 'veo_3_1-fast',
   'veo-4k': 'veo_3_1-fast-4K',
 };
@@ -301,7 +301,7 @@ export async function POST(request: Request) {
     console.log('🌐 开始调用视频生成API...');
     
     // 获取映射后的云雾API模型
-    const apiModel = MODEL_MAPPING[model || 'grok-video-3-10s'] || 'grok-video-3-10s';
+    const apiModel = MODEL_MAPPING[model || 'grok-imagine-video'] || 'grok-imagine-video';
     console.log('📋 使用模型:', apiModel, '(前端模型:', model, ')');
     
     // 根据模型类型构建请求体
